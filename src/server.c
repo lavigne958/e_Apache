@@ -14,23 +14,21 @@
 #include <signal.h>
 #include <pthread.h>
 
-#define SIZE_REQUEST 4096
+#include "requete.h"
+#include "server.h"
+
 
 int sock = -1;
-client *tab_clients == NULL;
-pthread_t *tab_tid == NULL;
-int nb_clients;
 
 void close_sock(){
-  int i;
-  if(sock != -1)
+  
+  printf("fermeture du server\n");
+  if(sock != -1){
+    printf("le socket n'est pas vide: %d\n", sock);
     close(sock);
-  if(tab_tid){
-    free(tab_tid);
   }
-  if(tab_clients){
-    free(tab_clients);
-  }
+  
+  exit(EXIT_SUCCESS);
 }
 
 freelist *push(int pos, freelist *liste){
@@ -51,20 +49,22 @@ freelist *pull(int *pos, freelist *liste){
 
 
 int main(int argc, char *argv[]){
-  int port, sock, client;
-  int *temp, i;
+  int port, sock, sock_client;
   int option;
-  
-  int pos;
+  int nb_clients;
+  pthread_t t_id;
 
   struct sigaction action;
   struct sockaddr_in addr;
   struct sockaddr_in exp;
+  client* tmp;
+
+  
   socklen_t explen = sizeof(exp);
   option = 1;
 
   if(argc != 4 || ((port = atoi(argv[1])) == 0) || ((nb_clients = atoi(argv[2])) == 0)){
-    fprintf(stderr, "Error: wrong arguments\n");
+    fprintf(stderr, "Usage: %s port clients unboundedvalue\n", argv[0]);
     return EXIT_FAILURE;
   }
    
@@ -93,34 +93,22 @@ int main(int argc, char *argv[]){
   }
 
   listen(sock, nb_clients);
-
-  tab_tid = (pthread_t*)malloc(sizeof(pthread_t) * nb_clients);
-  tab_clients = (client*)malloc(sizeof(client) * nb_clients);
-  if(!tab_clients){
-    fprintf(stderr, "Error malloc\n");
-    return EXIT_FAILURE;
-  }
-  
-  for(i=0; i < nb_clients; i++){
-    tab_clients[i].status = -1;
-  }
-  
+    
   while(1){
-    client = accept(sock, (struct sockaddr*)&exp, &explen);
+    sock_client = accept(sock, (struct sockaddr*)&exp, &explen);
+    printf("[server]\tnouvelle connexion d'un client\n");
 
-    pos = 0;
-    while(tab_client[pos].status != -1 && pos < nb_clients){
-      i++;
-    }
-    client[pos].status = 1;
-    client[pos].socket = client;
-    client[pos].indice = pos;
-    client[pos].expediteur = exp;
+    tmp = (client*) malloc(sizeof(client));
 
-    if(pthread_create(&tab_tid[pos], NULL, process_request, (void*)&client[pos]) != 0){
+    tmp->socket = sock_client;
+    tmp->expediteur = exp;
+
+    if(pthread_create(&t_id, NULL, process_request, (void*)tmp) != 0){
       perror("pthread_create");
-      return errno;
+      shutdown(sock_client, SHUT_RDWR);
     }
+
+    printf("[server]\tthread créer, attente d'une nouvelle connexion\n");
   }
   return EXIT_SUCCESS;
 }
