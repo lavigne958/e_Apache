@@ -14,68 +14,49 @@
 #include <signal.h>
 #include <pthread.h>
 
-#define SIZE_REQUEST 256
-
+#define SIZE_REQUEST 4096
 
 int sock = -1;
+client *tab_clients == NULL;
+pthread_t *tab_tid == NULL;
+int nb_clients;
+
 void close_sock(){
+  int i;
   if(sock != -1)
     close(sock);
-}
-
-/** Verifie que la requete se termine par deux "\n", 
-    quelle soit bien de type "Get" et que host soit correct */
-int check_request(const char *request, int size){
-  return 1;
-}
-
-void *process_request(void *arg){
-  int i, n, fd;
-  char request[SIZE_REQUEST];
-  char chemin[SIZE_REQUEST];
-  int sock = (*(int*)arg);
-  while(1){
-    n = read(sock, request, SIZE_REQUEST);
-    if(n == -1){
-      perror("process_request: read");
-      continue;
-    }
-    
-    if(!check_request(request, n)){
-      fprintf(stderr, "Error: bad formed request\n");
-    }
-
-    strcpy(chemin, "files/");
-    sscanf(request, "GET %s", chemin + 7);
-
-    if((fd = open(chemin, O_RDWR)) == -1){
-      perror("process_request: open");
-      continue;
-    }
-
-    while(1){
-      n = read(fd, request, SIZE_REQUEST);
-      if(n == -1){
-	perror("process_request: read file");
-	break;
-      }
-      if(n == 0){
-	break;
-      }
-      write(sock, request, n);
-    }
-    
+  if(tab_tid){
+    free(tab_tid);
   }
-  pthread_exit((void*)EXIT_SUCCESS);
+  if(tab_clients){
+    free(tab_clients);
+  }
 }
+
+freelist *push(int pos, freelist *liste){
+  freelist *tmp = (freelist*)malloc(sizeof(freelist));
+  tmp->position = pos;
+  tmp->next = liste;
+  return tmp;
+}
+
+freelist *pull(int *pos, freelist *liste){
+  freelist *tmp = liste->next;
+  *pos = liste->position;
+  free(liste);
+  return tmp;
+}
+
+
 
 
 int main(int argc, char *argv[]){
-  int port, nb_clients, sock, client;
-  int *temp;
+  int port, sock, client;
+  int *temp, i;
   int option;
-  pthread_t tid;
   
+  int pos;
+
   struct sigaction action;
   struct sockaddr_in addr;
   struct sockaddr_in exp;
@@ -112,12 +93,31 @@ int main(int argc, char *argv[]){
   }
 
   listen(sock, nb_clients);
+
+  tab_tid = (pthread_t*)malloc(sizeof(pthread_t) * nb_clients);
+  tab_clients = (client*)malloc(sizeof(client) * nb_clients);
+  if(!tab_clients){
+    fprintf(stderr, "Error malloc\n");
+    return EXIT_FAILURE;
+  }
+  
+  for(i=0; i < nb_clients; i++){
+    tab_clients[i].status = -1;
+  }
   
   while(1){
     client = accept(sock, (struct sockaddr*)&exp, &explen);
-    temp = (int*)malloc(sizeof(int));
-    *temp = client;
-    if(pthread_create(&tid, NULL, process_request, (void*)temp) != 0){
+
+    pos = 0;
+    while(tab_client[pos].status != -1 && pos < nb_clients){
+      i++;
+    }
+    client[pos].status = 1;
+    client[pos].socket = client;
+    client[pos].indice = pos;
+    client[pos].expediteur = exp;
+
+    if(pthread_create(&tab_tid[pos], NULL, process_request, (void*)&client[pos]) != 0){
       perror("pthread_create");
       return errno;
     }
