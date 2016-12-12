@@ -31,23 +31,6 @@ void close_sock(){
   exit(EXIT_SUCCESS);
 }
 
-freelist *push(int pos, freelist *liste){
-  freelist *tmp = (freelist*)malloc(sizeof(freelist));
-  tmp->position = pos;
-  tmp->next = liste;
-  return tmp;
-}
-
-freelist *pull(int *pos, freelist *liste){
-  freelist *tmp = liste->next;
-  *pos = liste->position;
-  free(liste);
-  return tmp;
-}
-
-
-
-
 int main(int argc, char *argv[]){
   int port, sock, sock_client;
   int option;

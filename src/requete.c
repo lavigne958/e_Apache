@@ -34,26 +34,27 @@ void check_file(const char *pathname, int* code, char* string){
   strcpy(string, "OK");
 }
 
-void get_mime(char* extention, char* mime){
-  int proc;
+int get_mime(char* extention, char* mime){
+  FILE* proc_file;
   char type[512];
-  char command =
+  int proc;
+  char command[] =
     "grep -w %s /etc/mime.types | awk '{if ($2 != "") if ($2 ~ /%s/) print $1}'";
 
   sprintf(command, command, extention, extention);
 
   printf("[thread]\tcommand: %s\n", command);
 
-  if( (proc = popen("grep -w html /etc/mime.types | awk '{if ($2 != "") print $1}'", "r");) != NULL){
+  if( (proc_file = popen("grep -w html /etc/mime.types | awk '{if ($2 != "") print $1}'", "r")) != NULL){
+    proc = fileno(proc_file);
     if( read(proc, type, 512) > 0){
       strcpy(mime, type);
-      pclose(proc);
+      pclose(proc_file);
       return 1;
-    }else{
-      pclose(proc);
-      return 0;
     }
   }
+  pclose(proc_file);
+  return 0;
 }
 
 void *process_request(void *arg){
@@ -120,6 +121,5 @@ void *process_request(void *arg){
 
   shutdown(self.socket, SHUT_RDWR);
   
-  self.status = -1;
   pthread_exit((void*)EXIT_SUCCESS);
 }
