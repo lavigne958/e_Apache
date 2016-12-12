@@ -110,16 +110,34 @@ void *process_request(void *arg){
   strcat(message, chemin);
 
   check_file(message, &code, str_code);
-  
   sprintf(message, reponse, code, str_code);
 
-  
-
   write(self.socket, message, strlen(message));
-
   
-
+  
+  
   shutdown(self.socket, SHUT_RDWR);
-  
   pthread_exit((void*)EXIT_SUCCESS);
+}
+
+int send_file(int socket, const char* pathname){
+  int fd;
+  int n;
+  char message[SIZE_REQUEST];
+  if((fd = open(pathname, O_RDONLY)) == -1){
+    perror("[thread] read_file: open");
+    return errno;
+  } 
+  while(1){
+    n = read(fd, message, SIZE_REQUEST);
+    if(n == -1){
+      perror("[thread] read_file: read");
+      return errno;
+    }
+    if(n == 0){
+      break;
+    }
+    write(socket, message, SIZE_REQUEST);
+  }
+  return EXIT_SUCCESS;
 }
