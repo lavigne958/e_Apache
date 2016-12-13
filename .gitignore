@@ -33,3 +33,6 @@
 # Debug files
 *.dSYM/
 *.su
+
+#emacs tmp fils
+#*.*~
