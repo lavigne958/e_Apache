@@ -10,6 +10,7 @@
 
 typedef struct client{
   int socket;
+  int log_file;
   struct sockaddr_in expediteur;
   sem_t *sem;
 }client;

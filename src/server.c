@@ -17,8 +17,9 @@
 #include "requete.h"
 #include "server.h"
 
-
 int sock = -1;
+int fd = -1;
+sem_t *semaphore = NULL;
 
 void close_sock(){
   
@@ -26,6 +27,13 @@ void close_sock(){
   if(sock != -1){
     printf("le socket n'est pas vide: %d\n", sock);
     close(sock);
+  }
+  if(fd != -1){
+    close(fd);
+  }
+
+  if(semaphore){
+    sem_close(semaphore);
   }
   
   exit(EXIT_SUCCESS);
@@ -42,6 +50,7 @@ int main(int argc, char *argv[]){
   struct sockaddr_in exp;
   client* tmp;
 
+  
   
   socklen_t explen = sizeof(exp);
   option = 1;
@@ -76,16 +85,37 @@ int main(int argc, char *argv[]){
   }
 
   listen(sock, nb_clients);
-    
+
+  sem_unlink("/semaphore_e_apache_server");
+  semaphore = sem_open("/semaphore_e_apache_server", O_CREAT | O_RDWR | O_EXCL, 600, 1);
+
+  if( semaphore == SEM_FAILED){
+    perror("semaphore n'a pas pu etre créer");
+    return errno;
+  }
+
+  if((fd = open("/tmp/http3200583.log", O_CREAT | O_TRUNC | O_RDWR | O_APPEND, 0600)) == -1){
+      perror("[server]\topen log file");
+      return EXIT_FAILURE;
+  }
+  
   while(1){
     sock_client = accept(sock, (struct sockaddr*)&exp, &explen);
+
+    if(sock_client == -1){
+      perror("accept new client");
+      return errno;
+    }
     printf("[server]\tnouvelle connexion d'un client\n");
 
     tmp = (client*) malloc(sizeof(client));
 
     tmp->socket = sock_client;
     tmp->expediteur = exp;
+    tmp->log_file = fd;
+    tmp->sem = semaphore;
 
+    printf("[server]\tlancement du thread\n");
     if(pthread_create(&t_id, NULL, process_request, (void*)tmp) != 0){
       perror("pthread_create");
       shutdown(sock_client, SHUT_RDWR);
