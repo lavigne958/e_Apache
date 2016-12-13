@@ -7,5 +7,6 @@
 #define INTERNAL_ERROR 500
 
 void *process_request(void *arg);
+int send_file(int socket, const char* pathname);
 
 #endif

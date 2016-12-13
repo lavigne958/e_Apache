@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <errno.h>
 
 #include "server.h"
@@ -38,14 +39,15 @@ int get_mime(char* extention, char* mime){
   FILE* proc_file;
   char type[512];
   int proc;
-  char command[] =
-    "grep -w %s /etc/mime.types | awk '{if ($2 != "") if ($2 ~ /%s/) print $1}'";
+  char s_command[] =
+    "grep -w %s /etc/mime.types | awk '{if ($2 != \"\") if ($2 ~ /%s/) print $1}'";
+  char command[100];
 
-  sprintf(command, command, extention, extention);
+  sprintf(command, s_command, extention, extention);
 
   printf("[thread]\tcommand: %s\n", command);
 
-  if( (proc_file = popen("grep -w html /etc/mime.types | awk '{if ($2 != "") print $1}'", "r")) != NULL){
+  if( (proc_file = popen(command, "r")) != NULL){
     proc = fileno(proc_file);
     if( read(proc, type, 512) > 0){
       strcpy(mime, type);
@@ -59,28 +61,34 @@ int get_mime(char* extention, char* mime){
 
 void *process_request(void *arg){
   char message[SIZE_REQUEST];
+  char pathname[SIZE_REQUEST];
   char *chemin;
   char *host;
+  char *extension;
+  char mime_type[50];
   int code;
   char str_code[10];
-  char reponse[] = "HTTP/1.1 %d %s\n";
-  int i=-1;
   client self = *(client*)arg;
+  int i=-1;
 
+  /* On lit la ligne du GET */
   do{
     i++;
     read(self.socket, &message[i], 1);
   }while(message[i] != '\n' && i < SIZE_REQUEST);
-  
+
   if(i == SIZE_REQUEST){
     fprintf(stderr, "Request is too long [4K max]\n");
-    exit(EXIT_FAILURE);
+    shutdown(self.socket, SHUT_RDWR);
+    pthread_exit((void*)EXIT_FAILURE);
   }
-  
+
+  /* On recupere le chemin du fichier demandé */
   chemin = (char*) malloc(sizeof(char) * ++i);
   sscanf(message, "GET %s HTTP/1.1\n", chemin);
   printf("[thread]\treq1: %s\n", chemin);
 
+  /* On lit la ligne du host */
   i = -1;
   do{
     i++;
@@ -92,6 +100,7 @@ void *process_request(void *arg){
     exit(EXIT_FAILURE);
   }
 
+  /* On recupere le host */
   host = (char*)malloc(sizeof(char) * ++i);
   sscanf(message, "Host: %s\n", host);
 
@@ -101,24 +110,41 @@ void *process_request(void *arg){
     chemin = &chemin[1];
   }
 
+  /* Si le chemin n'est composé que d'un / renvoyé le fichier index.html */
   if( strlen(chemin) == 0){
     strcpy(chemin, "index.html");
   }
 
-  getcwd(message, SIZE_REQUEST);
-  strcat(message, "/");
-  strcat(message, chemin);
+  /* On recupere le repertoire courant est on le concatene 
+     avec le chemin du fichier.
+   */
+  getcwd(pathname, SIZE_REQUEST);
+  strcat(pathname, "/");
+  strcat(pathname, chemin);
 
-  check_file(message, &code, str_code);
-  sprintf(message, reponse, code, str_code);
-
+  /* Cette méthode renverra le code et le message
+     de retour de notre server (200 "OK",...)
+  */
+  check_file(pathname, &code, str_code);
+  sprintf(message, "HTTP/1.1 %d %s\n", code, str_code);
   write(self.socket, message, strlen(message));
-  
-  
-  
+
+  /* On recherche l'extension de notre fichier */
+  extension = (char*) malloc(sizeof(char) * 5);
+  extension = strstr(chemin, ".");
+  extension++;
+
+  /* On recupère le type du fichier */
+  get_mime(extension, mime_type);
+  sprintf(message, "Content-Type: %s\n\n", mime_type);
+  write(self.socket, message, strlen(message));
+
+  send_file(self.socket, pathname);
+
   shutdown(self.socket, SHUT_RDWR);
   pthread_exit((void*)EXIT_SUCCESS);
 }
+
 
 int send_file(int socket, const char* pathname){
   int fd;
@@ -126,7 +152,7 @@ int send_file(int socket, const char* pathname){
   char message[SIZE_REQUEST];
   if((fd = open(pathname, O_RDONLY)) == -1){
     perror("[thread] read_file: open");
-    return errno;
+    return EXIT_FAILURE;
   } 
   while(1){
     n = read(fd, message, SIZE_REQUEST);
@@ -137,7 +163,7 @@ int send_file(int socket, const char* pathname){
     if(n == 0){
       break;
     }
-    write(socket, message, SIZE_REQUEST);
+    write(socket, message, n);
   }
   return EXIT_SUCCESS;
 }
