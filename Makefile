@@ -12,7 +12,7 @@ SRC=$(DIR)/src/
 
 all: $(BIN)server
 
-launch: $(DIR)/files/server
+launch: $(DIR)/bin/server
 	cd ./files/ && ../bin/server 8080 3 45 
 
 $(BIN)server: $(OBJ)server.o $(OBJ)requete.o
