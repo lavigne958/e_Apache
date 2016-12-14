@@ -30,6 +30,8 @@ char* get_time(char* result){
 void check_file(const char *pathname, int* code, char* string){
   struct stat buf;
   printf("[thread]\tpathname: %s\n", pathname);
+  /* Si stat retourne ENOENT le fichier n'existe pas, 
+     on renvoie 404 Not Found */
   if(stat(pathname, &buf) == -1){
     if(errno == ENOENT){
       *code = NOT_FOUND;
@@ -38,9 +40,18 @@ void check_file(const char *pathname, int* code, char* string){
     }
   }
 
+  /* Si le serveur n'a pas les droits en lecture on
+     renvoie 403 Forbidden
+  */
   if((buf.st_mode & S_IRUSR) == 0){
     *code = FORBIDDEN;
     strcpy(string, "Forbidden");
+    return;
+  }
+
+  /* Si le fichier est un executable */
+  if((buf.st_mode & S_IXUSR)){
+    *code = 0;
     return;
   }
 
@@ -102,6 +113,8 @@ void *process_request(void *arg){
   int code;
   char str_code[10];
   struct stat stats;
+  int pid;
+  int status;
   client self = *(client*)arg;
   int i=-1;
 
@@ -155,41 +168,60 @@ void *process_request(void *arg){
   strcat(pathname, chemin);
 
   /* Cette méthode renverra le code et le message
-     de retour de notre server (200 "OK",...)
+     de retour de notre server (200 "OK",...) 
+     ou 0 si le fichier est un executable.
   */
   check_file(pathname, &code, str_code);
 
-  sprintf(message, "HTTP/1.1 %d %s\n", code, str_code);
-  write(self.socket, message, strlen(message));
-  if(code != 200){
-    printf("[thread]\tfile not found\n");
-    write(self.socket, "\n", 1);
-    write_log(&self, str_get, code, 0);
+  if(code == 0){
+    /*pid = fork();
+    if(pid == -1){
+      perror("Fork Error");
+      shutdown(self.socket, SHUT_RDWR);
+      close(self.socket);
+      pthread_exit((void*)EXIT_FAILURE);
+    }
+    if(pid == 0){
+      dup2(self.socket, STDOUT_FILENO);
+      excel(pathname, chemin, NULL);
+    }
+    else{
+      wait(&status);
+      
+      }*/
   }
   else{
-    /* On recherche l'extension de notre fichier */
-    extension = (char*) malloc(sizeof(char) * 5);
-    extension = strstr(chemin, ".");
-    extension++;
-    
-    /* On recupère le type du fichier */
-    get_mime(extension, mime_type);
-    memset(message, '\0', SIZE_REQUEST);
-    sprintf(message, "Content-Type: %s", mime_type);
-    write(self.socket, message, strlen(message));
-    stat(pathname, &stats);
-    memset(message, '\0', SIZE_REQUEST);    
-    sprintf(message, "Content-Length: %d\n\n", (int)stats.st_size);
-    write(self.socket, message, strlen(message));
 
-    send_file(self.socket, pathname);
-    write_log(&self, str_get, code, stats.st_size);
-    
+    sprintf(message, "HTTP/1.1 %d %s\n", code, str_code);
+    write(self.socket, message, strlen(message));
+    if(code != 200){
+      printf("[thread]\tfile not found\n");
+      write(self.socket, "\n", 1);
+      write_log(&self, str_get, code, 0);
+    }
+    else{
+      /* On recherche l'extension de notre fichier */
+      extension = (char*) malloc(sizeof(char) * 5);
+      extension = strstr(chemin, ".");
+      extension++;
+      
+      /* On recupère le type du fichier */
+      get_mime(extension, mime_type);
+      memset(message, '\0', SIZE_REQUEST);
+      sprintf(message, "Content-Type: %s", mime_type);
+      write(self.socket, message, strlen(message));
+      stat(pathname, &stats);
+      memset(message, '\0', SIZE_REQUEST);    
+      sprintf(message, "Content-Length: %d\n\n", (int)stats.st_size);
+      write(self.socket, message, strlen(message));
+      
+      send_file(self.socket, pathname);
+      write_log(&self, str_get, code, stats.st_size);
+    }
   }
 
-  shutdown(self.socket, SHUT_WR);
+  shutdown(self.socket, SHUT_RDWR);
   read(self.socket, message, SIZE_REQUEST);
-  shutdown(self.socket, SHUT_RD);
   sleep(5);
   close(self.socket);
 
