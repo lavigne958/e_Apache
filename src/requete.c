@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <wait.h>
  
 #include "server.h"
 #include "requete.h"
@@ -103,6 +104,34 @@ void write_log(client *c, char* str_get, int ret_code, int size)
   sem_post(c->sem);
 }
 
+void execute(client *c, char *pathname, char *str_get, int *code, int *size){
+  int pid;
+  int status;
+  
+  pid = fork();
+  if(pid == -1){
+    perror("Fork Error");
+    /*
+      shutdown(self.socket, SHUT_RDWR);
+      close(self.socket);
+      pthread_exit((void*)EXIT_FAILURE);
+    */
+  }
+  if(pid == 0){
+    /* TODO: changer pour communiquer via un pipe */
+    dup2(c->socket, STDOUT_FILENO);
+    execl(pathname, pathname, NULL);
+
+    perror("erreur excel");
+    write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 30);
+    /*ENDTODO */
+  }
+  else{
+    printf("[thread]\tprogramme: %s lancé attente de fin\n", pathname);
+    wait(&status);
+  }
+}
+
 void *process_request(void *arg){
   char message[SIZE_REQUEST];
   char pathname[SIZE_REQUEST];
@@ -111,6 +140,7 @@ void *process_request(void *arg){
   char *str_get;
   char mime_type[50];
   int code;
+  int size;
   char str_code[10];
   struct stat stats;
   int pid;
@@ -156,7 +186,7 @@ void *process_request(void *arg){
   }
 
   /* Si le chemin n'est composé que d'un / renvoyé le fichier index.html */
-  if( strlen(chemin) == 0){
+  if( strlen(chemin) == 0 ){
     strcpy(chemin, "index.html");
   }
 
@@ -174,21 +204,8 @@ void *process_request(void *arg){
   check_file(pathname, &code, str_code);
 
   if(code == 0){
-    /*pid = fork();
-    if(pid == -1){
-      perror("Fork Error");
-      shutdown(self.socket, SHUT_RDWR);
-      close(self.socket);
-      pthread_exit((void*)EXIT_FAILURE);
-    }
-    if(pid == 0){
-      dup2(self.socket, STDOUT_FILENO);
-      excel(pathname, chemin, NULL);
-    }
-    else{
-      wait(&status);
-      
-      }*/
+    execute(&self, pathname, str_get, &code, &size);
+    
   }
   else{
 
@@ -221,8 +238,8 @@ void *process_request(void *arg){
   }
 
   shutdown(self.socket, SHUT_RDWR);
-  read(self.socket, message, SIZE_REQUEST);
-  sleep(5);
+  if(code) read(self.socket, message, SIZE_REQUEST);
+  /* sleep(5);*/
   close(self.socket);
 
   free(arg);
