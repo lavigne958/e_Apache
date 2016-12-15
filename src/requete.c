@@ -17,6 +17,9 @@
 #include "server.h"
 #include "requete.h"
 
+#define MS_TO_WAIT 10000
+#define SIZE_MIME 50
+
 
 char* get_time(char* result){
   struct tm *today;
@@ -62,18 +65,18 @@ void check_file(const char *pathname, int* code, char* string){
 
 int get_mime(char* extention, char* mime){
   FILE* proc_file;
-  char type[512];
+  char type[SIZE_MIME];
   int proc;
   char s_command[] =
     "grep -w %s /etc/mime.types | awk '{if ($2 != \"\") if ($2 ~ /%s/) print $1}'";
   char command[100];
 
-  memset(type, '\0', 512);
+  memset(type, '\0', SIZE_MIME);
   sprintf(command, s_command, extention, extention);
 
   if( (proc_file = popen(command, "r")) != NULL){
     proc = fileno(proc_file);
-    if( read(proc, type, 512) > 0){
+    if( read(proc, type, SIZE_MIME) > 0){
       strcpy(mime, type);
       pclose(proc_file);
       return 1;
@@ -128,17 +131,22 @@ void execute(client *c, char *pathname, int *code, int *size){
     
     dup2(fd, STDOUT_FILENO);
     execl(pathname, pathname, NULL);
-    perror("erreur excel");
-    write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 30);
+    perror("erreur execl");
+    write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
+
+    exit(EXIT_FAILURE);
   }
   else{
     printf("[thread]\tprogramme: %s lancé attente de fin\n", pathname);
-    while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < 10000)){
+    i = 0;
+    
+    while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < MS_TO_WAIT)){
       usleep(1000);
     }
 
-    if(i == 10000 || WEXITSTATUS(status) == -1){
-      write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 30);
+
+    if(i >= MS_TO_WAIT || WEXITSTATUS(status) != 0){
+      write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
       *code = 500;
       *size = 0;
       kill(pid, SIGKILL);
@@ -155,7 +163,7 @@ void *process_request(void *arg){
   char *chemin;
   char *extension;
   char *str_get;
-  char mime_type[50];
+  char mime_type[SIZE_MIME];
   int code;
   int size;
   char str_code[10];
@@ -163,7 +171,7 @@ void *process_request(void *arg){
   client self = *(client*)arg;
   int i=-1;
 
-  memset(mime_type, '\0', 50);
+  memset(mime_type, '\0', SIZE_MIME);
 
   /* On lit la ligne du GET */
   do{
@@ -173,13 +181,14 @@ void *process_request(void *arg){
 
   if(i == SIZE_REQUEST){
     fprintf(stderr, "Request is too long [4K max]\n");
+    fprintf(stderr, "received: %s\n\n", message);
     shutdown(self.socket, SHUT_RDWR);
     pthread_exit((void*)EXIT_FAILURE);
   }
 
   /* On recupere le chemin du fichier demandé */
   chemin = (char*) malloc(sizeof(char) * ++i);
-  sscanf(message, "GET %s HTTP/1.1\n", chemin);
+  sscanf(message, "GET %s HTTP/1.1\r\n", chemin);
 
   str_get = (char*) malloc(sizeof(char) * i);
   strcpy(str_get, message);
@@ -193,7 +202,9 @@ void *process_request(void *arg){
 
   if(i == SIZE_REQUEST){
     fprintf(stderr, "Request is too long2 [4K max]\n");
-    exit(EXIT_FAILURE);
+    fprintf(stderr, "received: %s\n\n", message);
+    shutdown(self.socket, SHUT_RDWR);
+    pthread_exit((void*)EXIT_FAILURE);
   } 
 
   if(chemin[0] == '/'){
@@ -223,7 +234,7 @@ void *process_request(void *arg){
     write_log(&self, str_get, code, size);
   }
   else{
-    sprintf(message, "HTTP/1.1 %d %s\n", code, str_code);
+    sprintf(message, "HTTP/1.1 %d %s\r\n", code, str_code);
     write(self.socket, message, strlen(message));
     if(code != 200){
       printf("[thread]\tfile not found\n");
@@ -235,15 +246,27 @@ void *process_request(void *arg){
       extension = (char*) malloc(sizeof(char) * 5);
       extension = strstr(chemin, ".");
       extension++;
+
+      memset(message, '\0', SIZE_REQUEST);
       
       /* On recupère le type du fichier */
-      get_mime(extension, mime_type);
-      memset(message, '\0', SIZE_REQUEST);
+
+/* ----------------------------------------------------------------
+---------------- ICI on écrit text/plain --------------------------
+---------------- si on trouve pas le type mime ?????????????????? */
+
+
+      if( !get_mime(extension, mime_type) ){
+	printf("[thread]\tmime failed\n");
+	strcpy(mime_type, "text/plain");
+      }
+     
+      /* pas besoin de \n la chaine mime_type l'a déjà à la fin */
       sprintf(message, "Content-Type: %s", mime_type);
       write(self.socket, message, strlen(message));
       stat(pathname, &stats);
       memset(message, '\0', SIZE_REQUEST);    
-      sprintf(message, "Content-Length: %d\n\n", (int)stats.st_size);
+      sprintf(message, "Content-Length: %d\r\n\r\n", (int)stats.st_size);
       write(self.socket, message, strlen(message));
       
       send_file(self.socket, pathname);
@@ -252,11 +275,16 @@ void *process_request(void *arg){
   }
 
   shutdown(self.socket, SHUT_RDWR);
+
+  /* if code == 0 (execution of a programm) then no need to read,
+     the socket is already closed, for some reasons, I dunno,
+     just ask Mr Vallade, president and chaiman of the project,
+     please just don't put that on me... no my fault.... my bad*/
   if(code) read(self.socket, message, SIZE_REQUEST);
-  /* sleep(5);*/
   close(self.socket);
 
-  free(arg);
+  printf("[thread]\tlibération de la mémoire\n");
+  if(arg) free(arg);  
   pthread_exit((void*)EXIT_SUCCESS);
 }
 

@@ -17,7 +17,7 @@
 #include "requete.h"
 #include "server.h"
 
-#define SEM "/semaphore_e_apache_server1"
+#define SEM "/semaphore_e_apache_server"
 
 int sock = -1;
 int fd = -1;
