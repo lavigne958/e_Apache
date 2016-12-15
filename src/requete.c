@@ -104,7 +104,7 @@ void write_log(client *c, char* str_get, int ret_code, int size)
   sem_post(c->sem);
 }
 
-void execute(client *c, char *pathname, char *str_get, int *code, int *size){
+void execute(client *c, char *pathname, int *code, int *size){
   int pid;
   int status;
   int fd;
@@ -139,11 +139,12 @@ void execute(client *c, char *pathname, char *str_get, int *code, int *size){
 
     if(i == 10000 || WEXITSTATUS(status) == -1){
       write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 30);
+      *code = 500;
+      *size = 0;
       kill(pid, SIGKILL);
     }else{
       send_file(c->socket, tmp_file);
     }
-    
     unlink(tmp_file);
   }
 }
@@ -159,8 +160,6 @@ void *process_request(void *arg){
   int size;
   char str_code[10];
   struct stat stats;
-  int pid;
-  int status;
   client self = *(client*)arg;
   int i=-1;
 
@@ -220,11 +219,10 @@ void *process_request(void *arg){
   check_file(pathname, &code, str_code);
 
   if(code == 0){
-    execute(&self, pathname, str_get, &code, &size);
-    
+    execute(&self, pathname, &code, &size);
+    write_log(&self, str_get, code, size);
   }
   else{
-
     sprintf(message, "HTTP/1.1 %d %s\n", code, str_code);
     write(self.socket, message, strlen(message));
     if(code != 200){

@@ -17,6 +17,8 @@
 #include "requete.h"
 #include "server.h"
 
+#define SEM "/semaphore_e_apache_server1"
+
 int sock = -1;
 int fd = -1;
 sem_t *semaphore = NULL;
@@ -86,8 +88,9 @@ int main(int argc, char *argv[]){
 
   listen(sock, nb_clients);
 
-  sem_unlink("/semaphore_e_apache_server");
-  semaphore = sem_open("/semaphore_e_apache_server", O_CREAT | O_RDWR | O_EXCL, 600, 1);
+  sem_unlink(SEM);
+  perror(SEM);
+  semaphore = sem_open(SEM, O_CREAT | O_RDWR | O_EXCL, 600, 1);
 
   if( semaphore == SEM_FAILED){
     perror("semaphore n'a pas pu etre créer");
