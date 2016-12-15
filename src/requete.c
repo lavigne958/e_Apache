@@ -107,28 +107,44 @@ void write_log(client *c, char* str_get, int ret_code, int size)
 void execute(client *c, char *pathname, char *str_get, int *code, int *size){
   int pid;
   int status;
-  
+  int fd;
+  int i;
+  static int counter = 0;
+  char tmp_file[50];
+
+  sem_wait(c->sem);
+  sprintf(tmp_file, "/tmp/exec_%d.tmp", ++counter);
+  sem_post(c->sem);
+
   pid = fork();
   if(pid == -1){
     perror("Fork Error");
-    /*
-      shutdown(self.socket, SHUT_RDWR);
-      close(self.socket);
-      pthread_exit((void*)EXIT_FAILURE);
-    */
   }
-  if(pid == 0){
-    /* TODO: changer pour communiquer via un pipe */
-    dup2(c->socket, STDOUT_FILENO);
+  if(pid == 0){    
+    if( (fd = open(tmp_file, O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1){
+      perror("impossible ouvir le fichier temporaire");
+      return;
+    }
+    
+    dup2(fd, STDOUT_FILENO);
     execl(pathname, pathname, NULL);
-
     perror("erreur excel");
     write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 30);
-    /*ENDTODO */
   }
   else{
     printf("[thread]\tprogramme: %s lancé attente de fin\n", pathname);
-    wait(&status);
+    while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < 10000)){
+      usleep(1000);
+    }
+
+    if(i == 10000 || WEXITSTATUS(status) == -1){
+      write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 30);
+      kill(pid, SIGKILL);
+    }else{
+      send_file(c->socket, tmp_file);
+    }
+    
+    unlink(tmp_file);
   }
 }
 
