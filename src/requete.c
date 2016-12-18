@@ -251,10 +251,6 @@ void *process_request(void *arg){
       
       /* On recupère le type du fichier */
 
-/* ----------------------------------------------------------------
----------------- ICI on écrit text/plain --------------------------
----------------- si on trouve pas le type mime ?????????????????? */
-
 
       if( !get_mime(extension, mime_type) ){
 	printf("[thread]\tmime failed\n");
@@ -274,13 +270,35 @@ void *process_request(void *arg){
     }
   }
 
+  /* this section reads up the buffer
+     up to the point it has twice '\n' red
+     so we know that this is the end of the header
+  */
+  i = 0;
+
+  do{
+    read(self.socket, message, 1);
+    printf("%c", message[0]);
+    if(message[0] == '\n'){
+      i++;
+    }else{
+      i = 0;
+    }
+  }while(i < 2);
+  
+  printf("fin lecture headers\n");
+
+  /* pour les requettes en rafale mettre une acolade ici
+     et un while 1 plus haut
+  */
+  
   shutdown(self.socket, SHUT_RDWR);
 
   /* if code == 0 (execution of a programm) then no need to read,
      the socket is already closed, for some reasons, I dunno,
      just ask Mr Vallade, president and chaiman of the project,
      please just don't put that on me... no my fault.... my bad*/
-  if(code) read(self.socket, message, SIZE_REQUEST);
+   read(self.socket, message, SIZE_REQUEST);
   close(self.socket);
 
   printf("[thread]\tlibération de la mémoire\n");
