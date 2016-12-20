@@ -188,7 +188,15 @@ void *process_request(void *arg){
 
   /* On recupere le chemin du fichier demandé */
   chemin = (char*) malloc(sizeof(char) * ++i);
-  sscanf(message, "GET %s HTTP/1.1\r\n", chemin);
+  size = sscanf(message, "%s %s HTTP/1.1\r\n",mime_type, chemin);
+  printf("[thread]\tmatches: %d\n", size);
+
+  if(strcmp("GET", mime_type) != 0){
+    printf("Commande inconnue\n");
+    shutdown(self.socket, SHUT_RDWR);
+    close(self.socket);
+    pthread_exit((void*)EXIT_FAILURE);
+  }
 
   str_get = (char*) malloc(sizeof(char) * i);
   strcpy(str_get, message);
@@ -205,12 +213,30 @@ void *process_request(void *arg){
     fprintf(stderr, "received: %s\n\n", message);
     shutdown(self.socket, SHUT_RDWR);
     pthread_exit((void*)EXIT_FAILURE);
-  } 
+  }
 
+  /* this section reads up the buffer
+     up to the point it has twice '\n' red
+     so we know that this is the end of the header
+  */
+  i = 1;
+  
+  do{
+    read(self.socket, message, 1);
+    printf("%c", message[0]);
+    if(message[0] == '\n'){
+      i++;
+    }else{
+      i = 0;
+    }
+  }while(i < 2);
+  
+  printf("fin lecture headers\n");
+  
   if(chemin[0] == '/'){
     chemin = &chemin[1];
   }
-
+  
   /* Si le chemin n'est composé que d'un / renvoyé le fichier index.html */
   if( strlen(chemin) == 0 ){
     strcpy(chemin, "index.html");
@@ -251,7 +277,7 @@ void *process_request(void *arg){
       
       /* On recupère le type du fichier */
 
-
+      
       if( !get_mime(extension, mime_type) ){
 	printf("[thread]\tmime failed\n");
 	strcpy(mime_type, "text/plain");
@@ -270,23 +296,7 @@ void *process_request(void *arg){
     }
   }
 
-  /* this section reads up the buffer
-     up to the point it has twice '\n' red
-     so we know that this is the end of the header
-  */
-  i = 0;
-
-  do{
-    read(self.socket, message, 1);
-    printf("%c", message[0]);
-    if(message[0] == '\n'){
-      i++;
-    }else{
-      i = 0;
-    }
-  }while(i < 2);
   
-  printf("fin lecture headers\n");
 
   /* pour les requettes en rafale mettre une acolade ici
      et un while 1 plus haut
