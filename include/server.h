@@ -6,8 +6,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define SIZE_REQUEST 4096
-
 typedef struct client{
   int socket;
   int log_file;

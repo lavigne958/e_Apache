@@ -130,7 +130,7 @@ int main(int argc, char *argv[]){
     tmp->sem = semaphore;
 
     printf("[server]\tlancement du thread\n");
-    if(pthread_create(&t_id, NULL, process_request, (void*)tmp) != 0){
+    if(pthread_create(&t_id, NULL, thread_server, (void*)tmp) != 0){
       perror("pthread_create");
       shutdown(sock_client, SHUT_RDWR);
     }

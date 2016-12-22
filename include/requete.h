@@ -7,10 +7,21 @@
 #define FORBIDDEN 403
 #define OK 200
 #define INTERNAL_ERROR 500
+#define SIZE_REQUEST 4096
+
+typedef struct thread_fils{
+  int *counter;
+  int id;
+  pthread_mutex_t *mutex;
+  client *cli;
+  char get[SIZE_REQUEST];
+}thread_fils;
 
 char* get_time(char* result);
 
 void check_file(const char *pathname, int* code, char* string);
+
+void *thread_server(void *arg);
 
 void *process_request(void *arg);
 

@@ -157,76 +157,87 @@ void execute(client *c, char *pathname, int *code, int *size){
   }
 }
 
-void *process_request(void *arg){
+void *thread_server(void *arg){
   char message[SIZE_REQUEST];
-  char pathname[SIZE_REQUEST];
-  char *chemin;
-  char *extension;
-  char *str_get;
-  char mime_type[SIZE_MIME];
-  int code;
+  char *get;
+  char host[SIZE_REQUEST];
+  pthread_t t_id;
+  int id;
+  int i;
   int size;
-  char str_code[10];
-  struct stat stats;
-  client self = *(client*)arg;
-  int i=-1;
-
+  int *counter;
+  thread_fils *fils;
+  client *self;
+  
+  pthread_mutex_t *mutex = (pthread_mutex_t*) malloc(sizeof(pthread_mutex_t));
+  pthread_mutex_init(mutex, NULL);
+  
+  counter = (int*) malloc(sizeof(int));
+  *counter = 0;
+  id = 0;
+  
+  self = (client*) arg;
+  get = (char*)malloc(sizeof(char) * SIZE_REQUEST);
   while(1){
-    memset(mime_type, '\0', SIZE_MIME);
-    memset(message, '\0', SIZE_REQUEST);
+    memset(get, '\0', SIZE_REQUEST);
     i = -1;
     
-
     /* On lit la ligne du GET */
     do{
       i++;
-      size = read(self.socket, &message[i], 1);
-    }while( message[i] != '\n' && i < SIZE_REQUEST && size > 0);
-
+      size = read(self->socket, &get[i], 1);
+      printf("[thread]\tlu: %c\n", get[i]);
+    }while( get[i] != '\n' && i < SIZE_REQUEST && size > 0);
+    
     if(i == SIZE_REQUEST){
       fprintf(stderr, "Request is too long [4K max]\n");
       fprintf(stderr, "received: %s\n\n", message);
-      shutdown(self.socket, SHUT_RDWR);
+      shutdown(self->socket, SHUT_RDWR);
       pthread_exit((void*)EXIT_FAILURE);
     }
 
-    /* On recupere le chemin du fichier demandé */
-    chemin = (char*) malloc(sizeof(char) * ++i);
-    size = sscanf(message, "%s %s HTTP/1.1\r\n",mime_type, chemin);
-    printf("[thread]\tmatches: %d\n", size);
+    printf("[thread]\ton à lu: %c - %d\n", get[i], size);
 
-    if(strcmp("GET", mime_type) != 0){
-      printf("Commande inconnue: %s\n", mime_type);
-      shutdown(self.socket, SHUT_RDWR);
-      close(self.socket);
+    if(size == 0){
+      printf("[thread]\trien à lire, on quitte\n");
+      shutdown(self->socket, SHUT_RDWR);
+      close(self->socket);
+      pthread_exit((void*)EXIT_FAILURE);
+    }else if(size == -1){
+      perror("lecture du GET");
+      printf("[thread]\terreur lors de la lecture du socket\n");
+      shutdown(self->socket, SHUT_RDWR);
+      close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
     }
-
-    str_get = (char*) malloc(sizeof(char) * i);
-    strcpy(str_get, message);
-
+      
+    printf("[thread]\tligne get: %d\n", i);
+    get[i] = '\0';
+    
     /* On lit la ligne du host */
     i = -1;
     do{
       i++;
-      size = read(self.socket, &message[i], 1);
-    }while(message[i] != '\n' && i < SIZE_REQUEST && size > 0);
-
+      size = read(self->socket, &host[i], 1);
+    }while(host[i] != '\n' && i < SIZE_REQUEST && size > 0);
+    
     if(i == SIZE_REQUEST){
       fprintf(stderr, "Request is too long2 [4K max]\n");
       fprintf(stderr, "received: %s\n\n", message);
-      shutdown(self.socket, SHUT_RDWR);
+      shutdown(self->socket, SHUT_RDWR);
       pthread_exit((void*)EXIT_FAILURE);
     }
-
+    
+    host[i] = '\0';
+    
     /* this section reads up the buffer
        up to the point it has twice '\n' red
        so we know that this is the end of the header
     */
     i = 1;
-  
+    
     do{
-      size = read(self.socket, message, 1);
+      size = read(self->socket, message, 1);
       printf("%c", message[0]);
       if(message[0] == '\n'){
 	i++;
@@ -234,88 +245,116 @@ void *process_request(void *arg){
 	i = 0;
       }
     }while(i < 2 && size > 0);
-  
+    
     printf("fin lecture headers\n");
-  
-    if(chemin[0] == '/'){
-      chemin = &chemin[1];
-    }
-  
-    /* Si le chemin n'est composé que d'un / renvoyé le fichier index.html */
-    if( strlen(chemin) == 0 ){
-      strcpy(chemin, "index.html");
-    }
-
-    /* On recupere le repertoire courant est on le concatene 
-       avec le chemin du fichier.
-    */
-    getcwd(pathname, SIZE_REQUEST);
-    strcat(pathname, "/");
-    strcat(pathname, chemin);
-
-    /* Cette méthode renverra le code et le message
-       de retour de notre server (200 "OK",...) 
-       ou 0 si le fichier est un executable.
-    */
-    check_file(pathname, &code, str_code);
-
-    if(code == 0){
-      execute(&self, pathname, &code, &size);
-      write_log(&self, str_get, code, size);
-    }
-    else{
-      sprintf(message, "HTTP/1.1 %d %s\r\n", code, str_code);
-      write(self.socket, message, strlen(message));
-      if(code != 200){
-	printf("[thread]\tfile not found\n");
-	write(self.socket, "\n", 1);
-	write_log(&self, str_get, code, 0);
-      }
-      else{
-	/* On recherche l'extension de notre fichier */
-	extension = (char*) malloc(sizeof(char) * 5);
-	extension = strstr(chemin, ".");
-	extension++;
-
-	memset(message, '\0', SIZE_REQUEST);
-      
-	/* On recupère le type du fichier */
-
-      
-	if( !get_mime(extension, mime_type) ){
-	  printf("[thread]\tmime failed\n");
-	  strcpy(mime_type, "text/plain");
-	}
-     
-	/* pas besoin de \n la chaine mime_type l'a déjà à la fin */
-	sprintf(message, "Content-Type: %s", mime_type);
-	write(self.socket, message, strlen(message));
-	stat(pathname, &stats);
-	memset(message, '\0', SIZE_REQUEST);    
-	sprintf(message, "Content-Length: %d\r\n\r\n", (int)stats.st_size);
-	write(self.socket, message, strlen(message));
-      
-	send_file(self.socket, pathname);
-	write_log(&self, str_get, code, stats.st_size);
-      }
+    
+    fils = (thread_fils*) malloc(sizeof(thread_fils));
+    
+    fils->counter = counter;
+    fils->id = id++;
+    fils->mutex = mutex;
+    fils->cli = self;
+    strncpy(fils->get, get, strlen(get));
+    
+    printf("[server]\tlancement du sous-thread\n");
+    if(pthread_create(&t_id, NULL, process_request, (void*)fils) != 0){
+      perror("pthread_create");
+      shutdown(self->socket, SHUT_RDWR);
+      close(self->socket);
+      pthread_exit((void*)EXIT_FAILURE);
     }
   }
-  
+}
 
-  /* pour les requettes en rafale mettre une acolade ici
-     et un while 1 plus haut
+void *process_request(void *arg){
+  
+  char pathname[SIZE_REQUEST];
+  char *chemin;
+  char *extension;
+  char buffer[SIZE_REQUEST];
+  char mime_type[SIZE_MIME];
+  int code;
+  int size;
+  char str_code[10];
+  struct stat stats;
+  thread_fils self = *(thread_fils*)arg;
+
+  memset(buffer, '\0', SIZE_REQUEST);
+
+  /* On recupere le chemin du fichier demandé */
+  chemin = (char*) malloc(sizeof(char) * strlen(self.get));
+  size = sscanf(self.get, "%s %s HTTP/1.1\r\n",buffer, chemin);
+  printf("[thread]\t\tmatches: %d\n", size);
+
+  if(strcmp("GET", buffer) != 0){
+    printf("[thread]\t\tCommande inconnue: %s - |commande|: %d\n", buffer, (int)strlen(buffer));
+    shutdown(self.cli->socket, SHUT_RDWR);
+    close(self.cli->socket);
+    pthread_exit((void*)EXIT_FAILURE);
+  }
+
+  
+  if(chemin[0] == '/'){
+    chemin = &chemin[1];
+  }
+  
+  /* Si le chemin n'est composé que d'un / renvoyé le fichier index.html */
+  if( strlen(chemin) == 0 ){
+    strcpy(chemin, "index.html");
+  }
+
+  /* On recupere le repertoire courant est on le concatene 
+     avec le chemin du fichier.
   */
-  
-  shutdown(self.socket, SHUT_RDWR);
+  getcwd(pathname, SIZE_REQUEST);
+  strcat(pathname, "/");
+  strcat(pathname, chemin);
 
-  /* if code == 0 (execution of a programm) then no need to read,
-     the socket is already closed, for some reasons, I dunno,
-     just ask Mr Vallade, president and chaiman of the project,
-     please just don't put that on me... no my fault.... my bad*/
-  read(self.socket, message, SIZE_REQUEST);
-  close(self.socket);
+  /* Cette méthode renverra le code et le message
+     de retour de notre server (200 "OK",...) 
+     ou 0 si le fichier est un executable.
+  */
+  check_file(pathname, &code, str_code);
 
-  printf("[thread]\tlibération de la mémoire\n");
+  if(code == 0){
+    execute(self.cli, pathname, &code, &size);
+    write_log(self.cli, self.get, code, size);
+  }
+  else{
+    sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
+    write(self.cli->socket, buffer, strlen(buffer));
+    if(code != 200){
+      printf("[thread]\t\t%d: %s\n", code, str_code);
+      write(self.cli->socket, "\n", 1);
+      write_log(self.cli, self.get, code, 0);
+    }
+    else{
+      /* On recherche l'extension de notre fichier */
+      extension = (char*) malloc(sizeof(char) * 5);
+      extension = strstr(chemin, ".");
+      extension++;
+
+      /* On recupère le type du fichier */
+
+      
+      if( !get_mime(extension, mime_type) ){
+	printf("[thread]\t\tmime failed\n");
+	strcpy(mime_type, "text/plain");
+      }
+     
+      /* pas besoin de \n la chaine mime_type l'a déjà à la fin */
+      sprintf(buffer, "Content-Type: %s", mime_type);
+      write(self.cli->socket, buffer, strlen(buffer));
+      stat(pathname, &stats);
+      sprintf(buffer, "Content-Length: %d\r\n\r\n", (int)stats.st_size);
+      write(self.cli->socket, buffer, strlen(buffer));
+      
+      send_file(self.cli->socket, pathname);
+      write_log(self.cli, self.get, code, stats.st_size);
+    }
+  }
+
+  printf("[thread]\t\tlibération de la mémoire\n");
   if(arg) free(arg);  
   pthread_exit((void*)EXIT_SUCCESS);
 }
