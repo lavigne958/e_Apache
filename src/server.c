@@ -13,11 +13,13 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <pthread.h>
+#include <sys/time.h>
 
 #include "requete.h"
 #include "server.h"
 
 #define SEM "/semaphore_e_apache_server"
+#define TIMEOUT 10
 
 int sock = -1;
 int fd = -1;
@@ -50,6 +52,7 @@ int main(int argc, char *argv[]){
   struct sigaction action;
   struct sockaddr_in addr;
   struct sockaddr_in exp;
+  struct timeval tv;
   client* tmp;
 
   
@@ -74,6 +77,11 @@ int main(int argc, char *argv[]){
     perror("creation socket");
     return errno;
   }
+
+  /* set the time out for the read function to TIMEOUT value */
+  tv.tv_sec = TIMEOUT;
+  tv.tv_usec = 0;
+  
   setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
 
   memset(&addr, '\0', sizeof(addr));
@@ -110,6 +118,9 @@ int main(int argc, char *argv[]){
       return errno;
     }
     printf("[server]\tnouvelle connexion d'un client\n");
+
+    
+    setsockopt(sock_client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval));
 
     tmp = (client*) malloc(sizeof(client));
 
