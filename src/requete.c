@@ -173,6 +173,9 @@ void *process_request(void *arg){
 
   while(1){
     memset(mime_type, '\0', SIZE_MIME);
+    memset(message, '\0', SIZE_REQUEST);
+    i = -1;
+    
 
     /* On lit la ligne du GET */
     do{
@@ -193,7 +196,7 @@ void *process_request(void *arg){
     printf("[thread]\tmatches: %d\n", size);
 
     if(strcmp("GET", mime_type) != 0){
-      printf("Commande inconnue\n");
+      printf("Commande inconnue: %s\n", mime_type);
       shutdown(self.socket, SHUT_RDWR);
       close(self.socket);
       pthread_exit((void*)EXIT_FAILURE);
@@ -227,7 +230,7 @@ void *process_request(void *arg){
       printf("%c", message[0]);
       if(message[0] == '\n'){
 	i++;
-      }else{
+      }else if(message[0] != '\r'){
 	i = 0;
       }
     }while(i < 2 && size > 0);
