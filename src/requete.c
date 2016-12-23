@@ -162,6 +162,7 @@ void *thread_server(void *arg){
   char *get;
   char host[SIZE_REQUEST];
   pthread_t t_id;
+  pthread_cond_t *cond;
   int id;
   int i;
   int size;
@@ -171,6 +172,9 @@ void *thread_server(void *arg){
   
   pthread_mutex_t *mutex = (pthread_mutex_t*) malloc(sizeof(pthread_mutex_t));
   pthread_mutex_init(mutex, NULL);
+
+  cond = (pthread_cond_t*) malloc(sizeof(pthread_cond_t));
+  pthread_cond_init(cond, NULL);
   
   counter = (int*) malloc(sizeof(int));
   *counter = 0;
@@ -186,7 +190,6 @@ void *thread_server(void *arg){
     do{
       i++;
       size = read(self->socket, &get[i], 1);
-      printf("[thread]\tlu: %c\n", get[i]);
     }while( get[i] != '\n' && i < SIZE_REQUEST && size > 0);
     
     if(i == SIZE_REQUEST){
@@ -253,6 +256,7 @@ void *thread_server(void *arg){
     fils->counter = counter;
     fils->id = id++;
     fils->mutex = mutex;
+    fils->cond = cond;
     fils->cli = self;
     strncpy(fils->get, get, strlen(get));
     
@@ -316,6 +320,12 @@ void *process_request(void *arg){
   */
   check_file(pathname, &code, str_code);
 
+  pthread_mutex_lock(self.mutex);
+
+  while( *self.counter != self.id){
+    pthread_cond_wait(self.cond, self.mutex);
+  }
+
   if(code == 0){
     execute(self.cli, pathname, &code, &size);
     write_log(self.cli, self.get, code, size);
@@ -353,6 +363,10 @@ void *process_request(void *arg){
       write_log(self.cli, self.get, code, stats.st_size);
     }
   }
+
+  pthread_cond_broadcast(self.cond);
+
+  pthread_mutex_unlock(self.mutex);
 
   printf("[thread]\t\tlibération de la mémoire\n");
   if(arg) free(arg);  

@@ -13,6 +13,7 @@ typedef struct thread_fils{
   int *counter;
   int id;
   pthread_mutex_t *mutex;
+  pthread_cond_t *cond;
   client *cli;
   char get[SIZE_REQUEST];
 }thread_fils;
