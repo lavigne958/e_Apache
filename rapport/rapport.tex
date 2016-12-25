@@ -3,6 +3,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[francais]{babel}
+\usepackage{listings}
 
 \title{Rapport projet Un server HTTP}
 \author{Lavigne Alexandre - Vallade Vincent}
@@ -16,9 +17,9 @@
 \section*{Introduction}
 
 Ce rapport décris notre raisonement et les solutions apportées pour répondres aux éxercices donnés
-par le projet de construction d'un mini-serveur HTTP pour l'UE Programation Répartie
-\newline
-Ce serveur suit le protocole HTTP 1.1. par aileurs, il n'accepte que la requette de type GET (dont le détail sera décris par la suite)
+par le projet de construction d'un mini-serveur HTTP pour l'UE Programation Répartie.\hbox{}
+
+Ce serveur suit le protocole HTTP 1.1. par aileurs, il n'accepte que la requette de type GET (dont le détail sera décris par la suite)\hbox{}
 
 Le projet est élaboré en langage C et la constante: XOPEN\_SOURCE est définit avec la valeur: 700
 
@@ -33,6 +34,47 @@ Le serveur HTTP prend en argument à son lancement:
 \item un nombre d'octet qu'un client peut demander au maximum par minute
 \end{itemize}
 
+Pour cette première partie nous avons essayé de concevoir un serveur HTTP en anticipant les questions 2 et 3.\hbox{}
 
+Nous avons conçu la partie principale du serveur pour que sa seul tâche soit de recevoir les requêtes des client sur le socket d'écoute et de lancer un thread tout de suite après.\hbox{}
+
+Le serveur établi donc toute l'initialisation puis lance une boucle infinie durant laquelle il écoute pour une connection de type TCP sur le port donné.
+\hbox{}
+
+Le serveur redéfinit le *handler* pour le signal SIGINT à fin de fermer le socket, détruire le sémaphore, et toute autres ressources alloué, ce qui nous permet de fermer le serveur via un CTRL+C proprement.
+Pour faciliter le transfert d'information entre le serveur principale et le thread qui traite avec un client, nous avons créer une structure contenant les informations suivantes:
+\begin{itemize}
+\item le socket de communication avec le client
+\item le descripteur de fichier de journalisation
+\item la structure sockaddr\_in du client
+\item le semaphore
+\end{itemize}
+
+La suite du document décrit le code du thread contenut dans le fichier ``requet.c''
+
+Le thread lit les caractères un par un sur le socket de communication jusqu'a trouver un caractère '\textbackslash{}n'.
+Ensuite il extrait le premier mot pour vérifier qu'il corespond bien à 'GET'.
+Il extrait le deuxième mot pour vérifier le chemin que le client demande.
+
+Sous unix pour demander une ressource à partir du dossier courant il suffit que le nom de cette ressource ne commence pas par '/', nous vérifions alors sa présence et le
+supprimons du chemin s'il existe. Nous vérifions si la ressource existe et si le server à les droits en lecture dessus.\hbox{}
+
+Ensuite le thread vérifie le type mime du fichier grâce à une fonction permetant de parser le fichier '/etc/mime.types' et de trouver si un mime-type existe, si oui alors
+il l'envoie au serveur sinon le serveur envoie 'text/plain', de cette manière nous protegons le client contre toute exécution de code alors que le type du fichier est indéterminé.\hbox{}
+
+La commande pour rechercher un type mime est la suivante: \hbox{}
+\begin{lstlisting}
+  grep -w %s /etc/mime.types |
+  awk '{if ($2 != \"\") if ($2 ~ /%s/) print $1}'
+\end{lstlisting}
+
+Cette ligne de commande BASH imprime les lignes du fichier /etc/mim.types qui contiennent le mot placé '\%s' puis awk fils les lignes dont la 2ème colone sont vides, puis si la deuxième colone match l'expression régulière /extention/ où extention est l'extention cherché alors on imprime sur la sortie standard la première colone, qui corespond au type mime rechercher.\hbox{}
+
+Une fois toute les vérifications effectué le thread envoit sa réponse au serveur, donc les header contenant le code de retoure puis le type mime du fichier.
+Ensuite une fonction dédié ouvre, lit et envoie le fichier au client.
+\hbox{}
+Une vérification des erreurs est éffectué durant l'exécution et renvoit s'il le faut un code de retour 404 ou 403 ou 500 (voir question suivantes)
+
+\section{Journalisation}
 
 \end{document}
