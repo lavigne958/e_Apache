@@ -13,4 +13,26 @@
 
 \maketitle
 
+\section*{Introduction}
+
+Ce rapport décris notre raisonement et les solutions apportées pour répondres aux éxercices donnés
+par le projet de construction d'un mini-serveur HTTP pour l'UE Programation Répartie
+\newline
+Ce serveur suit le protocole HTTP 1.1. par aileurs, il n'accepte que la requette de type GET (dont le détail sera décris par la suite)
+
+Le projet est élaboré en langage C et la constante: XOPEN\_SOURCE est définit avec la valeur: 700
+
+
+
+\section{Structure du Server}
+
+Le serveur HTTP prend en argument à son lancement:
+\begin{itemize}
+\item un port d'écote
+\item un nombre de client maximum à la fois
+\item un nombre d'octet qu'un client peut demander au maximum par minute
+\end{itemize}
+
+
+
 \end{document}
