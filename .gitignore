@@ -35,4 +35,9 @@
 *.su
 
 #emacs tmp fils
-#*.*~
+*.*~
+
+#latex tmp files
+*.aux
+*.log
+*.ps
