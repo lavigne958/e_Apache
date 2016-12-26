@@ -26,7 +26,7 @@ char* get_time(char* result){
   time_t current_time = time(NULL);
   today = localtime(&current_time);
 
-  sprintf(result, "%d/%d/%d-%d:%d:%d ", today->tm_mday, today->tm_mon, today->tm_year, today->tm_hour, today->tm_min, today->tm_sec);
+  sprintf(result, "%d/%d/%d-%d:%d:%d ", today->tm_mday, today->tm_mon, (today->tm_year + 1900), today->tm_hour, today->tm_min, today->tm_sec);
 
   return result;
 }
@@ -363,7 +363,8 @@ void *process_request(void *arg){
       write_log(self.cli, self.get, code, stats.st_size);
     }
   }
-
+  
+  *(self.counter) = *(self.counter) + 1;
   pthread_cond_broadcast(self.cond);
 
   pthread_mutex_unlock(self.mutex);
