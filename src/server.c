@@ -17,6 +17,7 @@
 
 #include "requete.h"
 #include "server.h"
+#include "vigilante.h"
 
 #define SEM "/semaphore_e_apache_server"
 #define TIMEOUT 10
@@ -54,7 +55,7 @@ int main(int argc, char *argv[]){
   struct sockaddr_in exp;
   struct timeval tv;
   client* tmp;
-
+  vigilante *vigil;
   
   
   socklen_t explen = sizeof(exp);
@@ -109,7 +110,8 @@ int main(int argc, char *argv[]){
       perror("[server]\topen log file");
       return EXIT_FAILURE;
   }
-  
+
+  vigil = create_vigilante_thread();
   while(1){
     sock_client = accept(sock, (struct sockaddr*)&exp, &explen);
 
@@ -123,12 +125,12 @@ int main(int argc, char *argv[]){
     setsockopt(sock_client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval));
 
     tmp = (client*) malloc(sizeof(client));
-
+    
     tmp->socket = sock_client;
     tmp->expediteur = exp;
     tmp->log_file = fd;
     tmp->sem = semaphore;
-
+    tmp->vigil = *vigil;
     printf("[server]\tlancement du thread\n");
     if(pthread_create(&t_id, NULL, thread_server, (void*)tmp) != 0){
       perror("pthread_create");

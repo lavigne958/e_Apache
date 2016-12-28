@@ -15,7 +15,7 @@ all: $(BIN)server
 launch: $(BIN)server test_cgi
 	./bin/server 8080 3 45 
 
-$(BIN)server: $(OBJ)server.o $(OBJ)requete.o
+$(BIN)server: $(OBJ)server.o $(OBJ)requete.o $(OBJ)vigilante.o
 	$(CC) -o $@ $^ $(LDFLAGS);
 
 test_cgi: $(OBJ)test_pipe_prog.o 

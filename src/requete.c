@@ -16,6 +16,7 @@
  
 #include "server.h"
 #include "requete.h"
+#include "vigilante.h"
 
 #define MS_TO_WAIT 10000
 #define SIZE_MIME 50
@@ -258,6 +259,7 @@ void *thread_server(void *arg){
     fils->mutex = mutex;
     fils->cond = cond;
     fils->cli = self;
+    fils->vigil = self->vigil;
     strncpy(fils->get, get, strlen(get));
     
     printf("[server]\tlancement du sous-thread\n");
@@ -282,7 +284,6 @@ void *process_request(void *arg){
   char str_code[10];
   struct stat stats;
   thread_fils self = *(thread_fils*)arg;
-
   memset(buffer, '\0', SIZE_REQUEST);
 
   /* On recupere le chemin du fichier demandé */
@@ -328,6 +329,8 @@ void *process_request(void *arg){
 
   if(code == 0){
     execute(self.cli, pathname, &code, &size);
+    printf("[thread_fils]\tsize: %d\n", size);
+    incremente_size(&self.vigil, size);
     write_log(self.cli, self.get, code, size);
   }
   else{
@@ -360,6 +363,8 @@ void *process_request(void *arg){
       write(self.cli->socket, buffer, strlen(buffer));
       
       send_file(self.cli->socket, pathname);
+      printf("[thread_fils]\tsize: %d\n", size);
+      incremente_size(&self.vigil, size);
       write_log(self.cli, self.get, code, stats.st_size);
     }
   }

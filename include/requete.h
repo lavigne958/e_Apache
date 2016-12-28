@@ -2,6 +2,7 @@
 #define REQUET_H
 
 #include "server.h"
+#include "vigilante.h"
 
 #define NOT_FOUND 404
 #define FORBIDDEN 403
@@ -16,6 +17,7 @@ typedef struct thread_fils{
   pthread_cond_t *cond;
   client *cli;
   char get[SIZE_REQUEST];
+  vigilante vigil;
 }thread_fils;
 
 char* get_time(char* result);
