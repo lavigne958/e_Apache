@@ -12,7 +12,7 @@ typedef struct client{
   int log_file;
   struct sockaddr_in expediteur;
   sem_t *sem;
-  vigilante vigil;
+  vigilante *vigil;
   
 }client;
 

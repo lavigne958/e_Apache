@@ -17,7 +17,6 @@ typedef struct thread_fils{
   pthread_cond_t *cond;
   client *cli;
   char get[SIZE_REQUEST];
-  vigilante vigil;
 }thread_fils;
 
 char* get_time(char* result);

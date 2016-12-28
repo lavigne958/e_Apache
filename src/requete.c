@@ -200,7 +200,7 @@ void *thread_server(void *arg){
       pthread_exit((void*)EXIT_FAILURE);
     }
 
-    printf("[thread]\ton à lu: %c - %d\n", get[i], size);
+    /* printf("[thread]\ton à lu: %c - %d\n", get[i], size); */
 
     if(size == 0){
       printf("[thread]\trien à lire, on quitte\n");
@@ -214,8 +214,7 @@ void *thread_server(void *arg){
       close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
     }
-      
-    printf("[thread]\tligne get: %d\n", i);
+    
     get[i] = '\0';
     
     /* On lit la ligne du host */
@@ -242,7 +241,7 @@ void *thread_server(void *arg){
     
     do{
       size = read(self->socket, message, 1);
-      printf("%c", message[0]);
+      /* printf("%c", message[0]); */
       if(message[0] == '\n'){
 	i++;
       }else if(message[0] != '\r'){
@@ -250,7 +249,9 @@ void *thread_server(void *arg){
       }
     }while(i < 2 && size > 0);
     
-    printf("fin lecture headers\n");
+    printf("[thread]\tfin lecture headers\n");
+
+    add_client(self->vigil, self->expediteur.sin_addr.s_addr);
     
     fils = (thread_fils*) malloc(sizeof(thread_fils));
     
@@ -259,8 +260,8 @@ void *thread_server(void *arg){
     fils->mutex = mutex;
     fils->cond = cond;
     fils->cli = self;
-    fils->vigil = self->vigil;
     strncpy(fils->get, get, strlen(get));
+
     
     printf("[server]\tlancement du sous-thread\n");
     if(pthread_create(&t_id, NULL, process_request, (void*)fils) != 0){
@@ -289,7 +290,6 @@ void *process_request(void *arg){
   /* On recupere le chemin du fichier demandé */
   chemin = (char*) malloc(sizeof(char) * strlen(self.get));
   size = sscanf(self.get, "%s %s HTTP/1.1\r\n",buffer, chemin);
-  printf("[thread]\t\tmatches: %d\n", size);
 
   if(strcmp("GET", buffer) != 0){
     printf("[thread]\t\tCommande inconnue: %s - |commande|: %d\n", buffer, (int)strlen(buffer));
@@ -330,18 +330,18 @@ void *process_request(void *arg){
   if(code == 0){
     execute(self.cli, pathname, &code, &size);
     printf("[thread_fils]\tsize: %d\n", size);
-    incremente_size(&self.vigil, size);
+    /* revoir l'imprementation car il faut empéché l'envoie si on dépasse */
+    incremente_size(self.cli->vigil, size, self.cli->expediteur.sin_addr.s_addr);      
     write_log(self.cli, self.get, code, size);
   }
   else{
-    sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
-    write(self.cli->socket, buffer, strlen(buffer));
     if(code != 200){
       printf("[thread]\t\t%d: %s\n", code, str_code);
+      sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
       write(self.cli->socket, "\n", 1);
       write_log(self.cli, self.get, code, 0);
-    }
-    else{
+    }else{
+      
       /* On recherche l'extension de notre fichier */
       extension = (char*) malloc(sizeof(char) * 5);
       extension = strstr(chemin, ".");
@@ -354,17 +354,26 @@ void *process_request(void *arg){
 	printf("[thread]\t\tmime failed\n");
 	strcpy(mime_type, "text/plain");
       }
-     
-      /* pas besoin de \n la chaine mime_type l'a déjà à la fin */
-      sprintf(buffer, "Content-Type: %s", mime_type);
-      write(self.cli->socket, buffer, strlen(buffer));
+
       stat(pathname, &stats);
-      sprintf(buffer, "Content-Length: %d\r\n\r\n", (int)stats.st_size);
-      write(self.cli->socket, buffer, strlen(buffer));
-      
-      send_file(self.cli->socket, pathname);
-      printf("[thread_fils]\tsize: %d\n", size);
-      incremente_size(&self.vigil, size);
+
+      if(incremente_size(self.cli->vigil, stats.st_size, self.cli->expediteur.sin_addr.s_addr)){
+	sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
+	write(self.cli->socket, buffer, strlen(buffer));
+	
+	/* pas besoin de \n la chaine mime_type l'a déjà à la fin */
+	sprintf(buffer, "Content-Type: %s", mime_type);
+	write(self.cli->socket, buffer, strlen(buffer));
+	
+	sprintf(buffer, "Content-Length: %d\r\n\r\n", (int)stats.st_size);
+	write(self.cli->socket, buffer, strlen(buffer));
+	
+	send_file(self.cli->socket, pathname);
+      }else{
+	sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
+	write(self.cli->socket, buffer, strlen(buffer));
+      }
+
       write_log(self.cli, self.get, code, stats.st_size);
     }
   }

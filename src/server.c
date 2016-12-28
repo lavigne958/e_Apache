@@ -48,6 +48,7 @@ int main(int argc, char *argv[]){
   int port, sock, sock_client;
   int option;
   int nb_clients;
+  int threshold;
   pthread_t t_id;
 
   struct sigaction action;
@@ -61,8 +62,11 @@ int main(int argc, char *argv[]){
   socklen_t explen = sizeof(exp);
   option = 1;
 
-  if(argc != 4 || ((port = atoi(argv[1])) == 0) || ((nb_clients = atoi(argv[2])) == 0)){
-    fprintf(stderr, "Usage: %s port clients unboundedvalue\n", argv[0]);
+  if(argc != 4 ||
+     ((port = atoi(argv[1])) == 0) ||
+     ((nb_clients = atoi(argv[2])) == 0) ||
+     ((threshold = atoi(argv[3])) == 0)){
+    fprintf(stderr, "Usage: %s port clients threshold\n", argv[0]);
     return EXIT_FAILURE;
   }
    
@@ -111,7 +115,7 @@ int main(int argc, char *argv[]){
       return EXIT_FAILURE;
   }
 
-  vigil = create_vigilante_thread();
+  vigil = create_vigilante_thread(threshold);
   while(1){
     sock_client = accept(sock, (struct sockaddr*)&exp, &explen);
 
@@ -119,7 +123,7 @@ int main(int argc, char *argv[]){
       perror("accept new client");
       return errno;
     }
-    printf("[server]\tnouvelle connexion d'un client\n");
+    printf("[server]\tnouvelle connexion d'un client: %ld\n", (long)exp.sin_addr.s_addr);
 
     
     setsockopt(sock_client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval));
@@ -130,7 +134,7 @@ int main(int argc, char *argv[]){
     tmp->expediteur = exp;
     tmp->log_file = fd;
     tmp->sem = semaphore;
-    tmp->vigil = *vigil;
+    tmp->vigil = vigil;
     printf("[server]\tlancement du thread\n");
     if(pthread_create(&t_id, NULL, thread_server, (void*)tmp) != 0){
       perror("pthread_create");
