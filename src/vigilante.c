@@ -120,6 +120,11 @@ int incremente_size(vigilante *v, int size, long ip){
   return 1;
 }
 
+
+/* si aucune requete n'a ete emise par un client durant la seconde 
+   courante, cette methode met la case du tableau correspondant aa cette
+   seconde a zero 
+*/
 void check_clients(vigilante *v){
   client_data_count *current;
   struct tm *local_time;
@@ -134,7 +139,9 @@ void check_clients(vigilante *v){
 
   current = v->clients;
   while(current != NULL){
-    current->track[local_time->tm_sec] = 0;
+    if(current->last != local_time->tm_sec){
+      current->track[local_time->tm_sec] = 0;
+    }
     current = current->next;
   }
 
