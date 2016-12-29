@@ -18,7 +18,7 @@ $(DEST)server: $(DEST)server.o $(DEST)requete.o $(DEST)vigilante.o
 	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
 	$(CC) -o $@ $^ $(LDFLAGS);
 
-$(DEST)test_cgi: $(DEST)test_pipe_prog.o
+$(DEST)test_cgi: $(DEST)test_cgi.o
 	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
 	$(CC) -o $@ $^ $(LDFLAGS);
 

@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <wait.h>
+#include <regex.h>
  
 #include "server.h"
 #include "requete.h"
@@ -110,36 +111,73 @@ char *get_extension(char *chemin, char *extension){
 }
 
 
+
 /* Cette méthode parse le fichier /etc/mime.types pour chercher le mime type 
    correspondant à l'extension et renvoie le resultat dans la chaine 
    mime passée en paramètres.
    Si la fonction n'a rien trouvée elle renvoie 0.
 */
-int get_mime(char* extension, char* mime){
-  FILE* proc_file;
-  char type[SIZE_MIME];
-  int proc;
-  char s_command[] =
-    "grep -w %s /etc/mime.types | awk '{if ($2 != \"\") if ($2 ~ /%s/) print $1}'";
-  char command[100];
-  if(extension == NULL){
+int get_mime(const char *extension, char *mime){
+  int err;
+  regex_t preg;
+  char line[512];
+  FILE *f;
+  char *str_regex;
+
+  int match;
+  size_t nmatch;
+  regmatch_t *pmatch;
+  int start;
+  int end;
+  size_t size;
+  
+  const char template[] = "([[:alnum:]]+/[[:alnum:]+-.]+).*[[:space:]]+%s[[:space:]]";
+
+  if(extension == NULL || extension[0] == '\0'){
     return 0;
   }
   
-  memset(type, '\0', SIZE_MIME);
-  sprintf(command, s_command, extension, extension);
+  str_regex = (char*)malloc(sizeof(char) * (strlen(template) + 100));
+  sprintf(str_regex, template, extension);
+  f = fopen("/etc/mime.types", "r");
+  if(!f){
+    printf("Error: malloc\n");
+    fclose(f);
+    return 0;
+  }
 
-  if( (proc_file = popen(command, "r")) != NULL){
-    proc = fileno(proc_file);
-    if( read(proc, type, SIZE_MIME) > 0){
-      strcpy(mime, type);
-      pclose(proc_file);
-      return 1;
+  err = regcomp (&preg, str_regex, REG_EXTENDED);
+  if (err != 0){
+    fclose(f);
+    return 0;
+  }
+  
+  nmatch = 0;
+  pmatch = NULL;
+  
+  nmatch = preg.re_nsub + 1;
+  pmatch = malloc (sizeof (*pmatch) * nmatch);
+  if (pmatch){
+    while(fgets(line, 512, f) != NULL){
+      match = regexec (&preg, line, nmatch, pmatch, 0);
+      if (match == 0){
+	start = pmatch[1].rm_so;
+	end = pmatch[1].rm_eo;
+	size = end - start;
+	if (mime){
+	  strncpy (mime, &line[start], size);
+	  mime[size] = '\0';
+	}
+	printf("TYPE: %s\n", mime);
+	fclose(f);
+	return 1;
+      }
     }
   }
-  pclose(proc_file);
+  fclose(f);
   return 0;
 }
+
 
 /*
   Cette méthode va ajouter une ligne dans le fichier de journalisation 
@@ -431,7 +469,7 @@ void *process_request(void *arg){
 
       if( !get_mime(extension, mime_type) ){
 	printf("[thread]\t\tmime failed\n");
-	strcpy(mime_type, "text/plain\n");
+	strcpy(mime_type, "text/plain");
       }
 
       stat(pathname, &stats);
@@ -444,8 +482,7 @@ void *process_request(void *arg){
 	}
 	write(self.cli->socket, buffer, strlen(buffer));
 	
-	/* pas besoin de \n la chaine mime_type l'a déjà à la fin */
-	sprintf(buffer, "Content-Type: %s", mime_type);
+	sprintf(buffer, "Content-Type: %s\n", mime_type);
 	write(self.cli->socket, buffer, strlen(buffer));
 	
 	sprintf(buffer, "Content-Length: %d\r\n\r\n", (int)stats.st_size);
