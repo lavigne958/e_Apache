@@ -96,12 +96,11 @@ char *get_extension(char *chemin, char *extension){
     free(temp);
     return NULL;
   }
-  printf("extension trouve: %s\n", temp);
+  
   for(i=0, j--; j >= 0; i++, j--){
     extension[i] = temp[j];
   }
   extension[i] = '\0';
-  printf("extension renvoyée: %s\n", extension);
   free(temp);
   return extension;
 }
