@@ -3,27 +3,23 @@ CFLAGS = -W -Wall -ansi -pedantic -Iinclude
 LDFLAGS = -lpthread
 
 DIR=.
-BIN=$(DIR)/bin/
-OBJ=$(DIR)/obj/
 INCLUDE=$(DIR)/include/
-LIB=$(DIR)/lib/
 SRC=$(DIR)/src/
 
 
-all: $(BIN)server
+all: server test_cgi
 
-launch: $(BIN)server test_cgi
-	./bin/server 8080 3 3500
+launch: server test_cgi 
+	./server 8080 3 35000000000
 
-$(BIN)server: $(OBJ)server.o $(OBJ)requete.o $(OBJ)vigilante.o
+server: server.o requete.o vigilante.o
 	$(CC) -o $@ $^ $(LDFLAGS);
 
-test_cgi: $(OBJ)test_pipe_prog.o 
+test_cgi: test_pipe_prog.o 
 	$(CC) -o $@ $^ $(LDFLAGS);
 
-$(OBJ)%.o: $(SRC)%.c
-	@if [ -d $(OBJ) ]; then : ; else mkdir $(OBJ); fi
+%.o: $(SRC)%.c
 	$(CC) $(CFLAGS) -o $@ -c $< $(LDFLAGS)
 
 clean:
-	rm -f $(OBJ)*.o $(SRC)*~ $(BIN)* $(DIR)/*~
+	rm -f *.o $(SRC)*~ $(DIR)/*~ test_cgi server

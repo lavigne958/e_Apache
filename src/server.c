@@ -26,6 +26,7 @@ int sock = -1;
 int fd = -1;
 sem_t *semaphore = NULL;
 
+/* methode appelee lors du traitement d'un signal SIGINT */
 void close_sock(){
   
   printf("fermeture du server\n");
@@ -101,8 +102,8 @@ int main(int argc, char *argv[]){
 
   listen(sock, nb_clients);
 
+  /* Creation du semaphore pour l'acces concurrent au fichier de log */
   sem_unlink(SEM);
-  perror(SEM);
   semaphore = sem_open(SEM, O_CREAT | O_RDWR | O_EXCL, 600, 1);
 
   if( semaphore == SEM_FAILED){
@@ -110,11 +111,17 @@ int main(int argc, char *argv[]){
     return errno;
   }
 
+  /* Ouverture du fichier de log, ce descripteur sera transmis à tous les threads de
+     gestion de connection.
+  */
   if((fd = open("/tmp/http3200583.log", O_CREAT | O_TRUNC | O_RDWR | O_APPEND, 0600)) == -1){
       perror("[server]\topen log file");
       return EXIT_FAILURE;
   }
 
+  /* On cree un thread vigilante qui surveillera que les donnees envoyees a chaque client
+     n'excede pas threshold durant la derniere minute
+  */
   vigil = create_vigilante_thread(threshold);
   while(1){
     sock_client = accept(sock, (struct sockaddr*)&exp, &explen);
@@ -135,7 +142,7 @@ int main(int argc, char *argv[]){
     tmp->log_file = fd;
     tmp->sem = semaphore;
     tmp->vigil = vigil;
-    printf("[server]\tlancement du thread\n");
+    
     if(pthread_create(&t_id, NULL, thread_server, (void*)tmp) != 0){
       perror("pthread_create");
       shutdown(sock_client, SHUT_RDWR);
