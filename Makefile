@@ -11,8 +11,8 @@ all: $(DEST)server $(DEST)test_cgi
 
 test: $(DEST)server $(DEST)test_cgi
 	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
-	@cp -r index.html edt.pdf favicon.ico $(DEST)
-	cd $(DEST) && $(DEST)server 8080 3 150000
+	@cp -r index.html edt.pdf favicon.ico img.jpg $(DEST)
+	cd $(DEST) && $(DEST)server 8080 3 30000000
 
 $(DEST)server: $(DEST)server.o $(DEST)requete.o $(DEST)vigilante.o
 	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
@@ -27,4 +27,6 @@ $(DEST)%.o: $(SRC)%.c
 	$(CC) $(CFLAGS) -o $@ -c $< $(LDFLAGS)
 
 clean:
-	rm -f *.o $(SRC)*~ $(DIR)/*~ $(DEST)* 
+	rm -f *.o $(SRC)*~ $(DIR)/*~
+	rm -rf $(DEST)
+	rm -f rapport/*.aux rapport/*.log

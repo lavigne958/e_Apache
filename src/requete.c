@@ -85,7 +85,10 @@ char *get_extension(char *chemin, char *extension){
     fprintf(stderr, "Error get_extension: null pointer\n");
     return NULL;
   }
-  
+
+  /* On parcourt la chaine chemin depuis la fin jusqu'à trouver 
+     un point
+  */
   for(i=strlen(chemin)-1; i >= 0 && chemin[i] != '.'; i--){
     temp[j] = chemin[i];
     j++;
@@ -96,7 +99,8 @@ char *get_extension(char *chemin, char *extension){
     free(temp);
     return NULL;
   }
-  
+
+  /* On remplit la chaine extension avec le contenu de temp */
   for(i=0, j--; j >= 0; i++, j--){
     extension[i] = temp[j];
   }
@@ -334,10 +338,6 @@ void *process_request(void *arg){
 
   pthread_mutex_lock(self.mutex);
 
-  while( *self.counter != self.id){
-    pthread_cond_wait(self.cond, self.mutex);
-  }
-
   /*
     Si le code est égal à 0 la requête concerne un fichier exécutable. 
     Le processus fils qui exécutera le code ecrira le resultat de l'exécution dans 
@@ -431,14 +431,17 @@ void *process_request(void *arg){
 
       if( !get_mime(extension, mime_type) ){
 	printf("[thread]\t\tmime failed\n");
-	strcpy(mime_type, "text/plain");
+	strcpy(mime_type, "text/plain\n");
       }
 
-      printf("apres mime types\n");
       stat(pathname, &stats);
 
       if(incremente_size(self.cli->vigil, stats.st_size, self.cli->expediteur.sin_addr.s_addr)){
 	sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
+
+	while(*self.counter != self.id){
+	  pthread_cond_wait(self.cond, self.mutex);
+	}
 	write(self.cli->socket, buffer, strlen(buffer));
 	
 	/* pas besoin de \n la chaine mime_type l'a déjà à la fin */
