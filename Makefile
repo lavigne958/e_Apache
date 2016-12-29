@@ -4,7 +4,7 @@ LDFLAGS = -lpthread
 
 DIR=.
 INCLUDE=$(DIR)/include/
-DEST=/tmp/3200583/
+DEST=/tmp/3200583-3502363/
 SRC=$(DIR)/src/
 
 all: $(DEST)server $(DEST)test_cgi
