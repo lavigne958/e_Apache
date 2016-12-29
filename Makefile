@@ -4,22 +4,26 @@ LDFLAGS = -lpthread
 
 DIR=.
 INCLUDE=$(DIR)/include/
+DEST=/tmp/3200583/
 SRC=$(DIR)/src/
 
+all: $(DEST)server $(DEST)test_cgi
 
-all: server test_cgi
+test: $(DEST)server $(DEST)test_cgi
+	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
+	$(DEST)server 8080 3 35000
 
-launch: server test_cgi 
-	./server 8080 3 35000000000
-
-server: server.o requete.o vigilante.o
+$(DEST)server: $(DEST)server.o $(DEST)requete.o $(DEST)vigilante.o
+	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
 	$(CC) -o $@ $^ $(LDFLAGS);
 
-test_cgi: test_pipe_prog.o 
+$(DEST)test_cgi: $(DEST)test_pipe_prog.o
+	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
 	$(CC) -o $@ $^ $(LDFLAGS);
 
-%.o: $(SRC)%.c
+$(DEST)%.o: $(SRC)%.c
+	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
 	$(CC) $(CFLAGS) -o $@ -c $< $(LDFLAGS)
 
 clean:
-	rm -f *.o $(SRC)*~ $(DIR)/*~ test_cgi server
+	rm -f *.o $(SRC)*~ $(DIR)/*~ $(DEST)* 
