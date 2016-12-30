@@ -118,7 +118,6 @@ char *get_extension(char *chemin, char *extension){
    Si la fonction n'a rien trouvée elle renvoie 0.
 */
 int get_mime(const char *extension, char *mime){
-  int err;
   regex_t preg;
   char line[512];
   FILE *f;
@@ -141,27 +140,29 @@ int get_mime(const char *extension, char *mime){
   sprintf(str_regex, template, extension);
   f = fopen("/etc/mime.types", "r");
   if(!f){
-    printf("Error: malloc\n");
+    printf("Erreur: ouverture fichier mime.types\n");
     fclose(f);
     return 0;
   }
 
-  err = regcomp (&preg, str_regex, REG_EXTENDED);
-  if (err != 0){
+  if(regcomp (&preg, str_regex, REG_EXTENDED)){
     fclose(f);
     return 0;
   }
   
-  nmatch = 0;
+
   pmatch = NULL;
   
   nmatch = preg.re_nsub + 1;
   pmatch = malloc (sizeof (*pmatch) * nmatch);
-  if (pmatch){
-    while(fgets(line, 512, f) != NULL){
-      match = regexec (&preg, line, nmatch, pmatch, 0);
-      if (match == 0){
-	start = pmatch[1].rm_so;
+  if (!pmatch){
+    fprintf(stderr, "Erreur malloc\n");
+    return 0;
+  }
+  while(fgets(line, 512, f) != NULL){
+    match = regexec (&preg, line, nmatch, pmatch, 0);
+    if (match == 0){
+      start = pmatch[1].rm_so;
 	end = pmatch[1].rm_eo;
 	size = end - start;
 	if (mime){
@@ -169,15 +170,123 @@ int get_mime(const char *extension, char *mime){
 	  mime[size] = '\0';
 	}
 	printf("TYPE: %s\n", mime);
+	free(pmatch);
 	fclose(f);
 	return 1;
       }
-    }
   }
+  free(pmatch);
   fclose(f);
   return 0;
 }
 
+
+/* Cette methode va chercher dans un fichier contenant un message de reponse
+   http, le code de retour et la taille des donnees envoyees
+*/
+int get_code_and_size(const char *filename, int *code, int *length){
+  regex_t reg_http;
+  regex_t reg_length;
+  char line[256];
+  char result[256];
+  FILE *f;
+
+  int match;
+  int nbmatch;
+  regmatch_t *tab_match;
+  int start;
+  int end;
+  size_t size;
+
+  char* regex_length;
+  char* regex_http;
+
+  regex_http = "HTTP/1.1 ([[:digit:]]{3}) ";
+  regex_length = "Content-Length: ([[:digit:]]+)";
+
+  f = fopen(filename, "r");
+  if(!f){
+    printf("Erreur: ouverture fichier %s\n", filename);
+    fclose(f);
+    return 0;
+  }
+
+  if(regcomp (&reg_http, regex_http, REG_EXTENDED) != 0){
+    fclose(f);
+    return 0;
+  }
+
+  if(regcomp (&reg_length, regex_length, REG_EXTENDED) != 0){
+    fclose(f);
+    return 0;
+  }
+
+  tab_match = NULL;
+  nbmatch = 2;
+  tab_match = malloc (sizeof (*tab_match) * nbmatch);
+  
+  if (!tab_match){
+    fprintf(stderr, "Erreur malloc\n");
+    return 0;
+  }
+
+  if(fgets(line, 256, f) == NULL){
+    fclose(f);
+    free(tab_match);
+    return 0;
+  }
+  
+  /* On recherche le code de retour de la reponse. */
+  match = regexec(&reg_http, line, nbmatch, tab_match, 0);
+
+  /* Mauvaise reponse http si on ne trouve aucune correspondance */
+  if(match != 0){
+    free(tab_match);
+    fclose(f);
+    return 0;
+  }
+
+  start = tab_match[1].rm_so;
+  end = tab_match[1].rm_eo;
+  size = end - start;
+  strncpy(result, &line[start], size);
+  result[size] = '\0';
+  *code = atoi(result);
+  
+  /* Tant qu'il y a des headers a lire on recherche
+     Content-length
+  */
+  while(fgets(line, 256, f) != NULL && strlen(line) != 1){
+
+    match = regexec (&reg_length, line, nbmatch, tab_match, 0);
+    if (match != 0){
+      continue;
+    }
+    start = tab_match[1].rm_so;
+    end = tab_match[1].rm_eo;
+    size = end - start;
+    strncpy (result, &line[start], size);
+    result[size] = '\0';
+    *length = atoi(result);
+
+    free(tab_match);
+    fclose(f);
+    return 1;
+  }
+
+  free(tab_match);
+
+  size = 0;
+  /* Si ce header n'est pas present, il faut compter 
+     la taille des donnees envoyees */
+  while(fgets(line, 256, f) != NULL){
+    size += strlen(line);
+  }
+  *length = size;
+  
+  fclose(f);
+  return 0;
+}
 
 /*
   Cette méthode va ajouter une ligne dans le fichier de journalisation 
@@ -426,7 +535,7 @@ void *process_request(void *arg){
       while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < MS_TO_WAIT)){
 	usleep(1000);
       }
-    
+      /* Si le fils s'est mal termine ou pas dans les temps */
       if(i >= MS_TO_WAIT || WEXITSTATUS(status) != 0){
 	while( *self.counter != self.id){
 	  pthread_cond_wait(self.cond, self.mutex);
@@ -435,18 +544,30 @@ void *process_request(void *arg){
 	code = 500;
 	size = 0;
 	kill(pid, SIGKILL);
-      }else{
+      }
+      /* Si le fils s'est correctement termine */
+      else{
 	while(*self.counter != self.id){
 	  pthread_cond_wait(self.cond, self.mutex);
 	}
-	send_file(self.cli->socket, tmp_file);
+	/* On va recuperer dans le fichier le code de retour et la taille de
+	   la reponse du fils, si la reponse est correcte et que le client a le droit 
+	   de recevoir des donnees, on lui envoie le contenu du fichier
+	*/
+	if(get_code_and_size(tmp_file, &code, &size) != 0 &&
+	   incremente_size(self.cli->vigil, size, self.cli->expediteur.sin_addr.s_addr)){
+	  send_file(self.cli->socket, tmp_file);
+	}
+	else{
+	  code = 403;
+	  size = 0;
+	  sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
+	  write(self.cli->socket, buffer, strlen(buffer));
+	}
       }
       unlink(tmp_file);
     }
     printf("[thread_fils]\tsize: %d\n", size);
-    if(incremente_size(self.cli->vigil, size, self.cli->expediteur.sin_addr.s_addr)){
-      /* TODO */
-    }
     write_log(self.cli, self.get, code, size);
   }
   else{

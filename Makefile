@@ -12,7 +12,7 @@ all: $(DEST)server $(DEST)test_cgi
 test: $(DEST)server $(DEST)test_cgi
 	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
 	@cp -r index.html edt.pdf favicon.ico img.jpg $(DEST)
-	cd $(DEST) && $(DEST)server 8080 3 30000000
+	cd $(DEST) && $(DEST)server 8080 3 30000
 
 $(DEST)server: $(DEST)server.o $(DEST)requete.o $(DEST)vigilante.o
 	@if [ -d $(DEST) ]; then : ; else mkdir $(DEST); fi
