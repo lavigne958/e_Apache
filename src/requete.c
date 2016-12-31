@@ -94,6 +94,7 @@ char *get_extension(char *chemin, char *extension){
     temp[j] = chemin[i];
     j++;
   }
+  
   /* On a trouvé aucune extension */
   if(i < 0){
     extension[0] = '\0';
@@ -504,6 +505,7 @@ void *process_request(void *arg){
     pid = fork();
     if(pid == -1){
       perror("Fork Error");
+      pthread_exit((int)errno);
     }
     if(pid == 0){    
       if( (fd = open(tmp_file, O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1){
@@ -524,6 +526,12 @@ void *process_request(void *arg){
 	pthread_cond_wait(self.cond, self.mutex);
       }
       write(self.cli->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
+
+      
+      *(self.counter) = *(self.counter) + 1;
+      pthread_cond_broadcast(self.cond);
+
+      pthread_mutex_unlock(self.mutex);
 
       exit(EXIT_FAILURE);
     }
