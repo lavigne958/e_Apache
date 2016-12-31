@@ -2,7 +2,7 @@
 #define VIGILANTE_H
 
 #include <pthread.h>
-#define DIRTY 1
+#define BLOCKED 1
 
 typedef struct client_data_count{
   int track[60];
@@ -10,6 +10,7 @@ typedef struct client_data_count{
   struct client_data_count *next;
   int flag;
   int last;
+  int timeleft;
 }client_data_count;
 
 typedef struct vigilante{

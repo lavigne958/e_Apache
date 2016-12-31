@@ -27,7 +27,7 @@ void *thread_server(void *arg);
 
 void *process_request(void *arg);
 
-int get_mime(char* extention, char* mime);
+int get_mime(const char* extention, char* mime);
 
 void write_log(client *c, char* str_get, int ret_code, int size);
 

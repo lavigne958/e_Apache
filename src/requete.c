@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <wait.h>
+#include <regex.h>
  
 #include "server.h"
 #include "requete.h"
@@ -22,6 +23,9 @@
 #define SIZE_MIME 50
 
 
+/* Cette méthode renvoie dans la chaine passée en paramètre la date
+   courante sous le format day/month/year-hour:min:sec
+*/
 char* get_time(char* result){
   struct tm *today;
   time_t current_time = time(NULL);
@@ -32,6 +36,11 @@ char* get_time(char* result){
   return result;
 }
 
+
+/* Cette méthode vérifie que le fichier existe et qu'il est accessible par le serveur en
+   lecture. Il renvoie dans les paramètres code et string, le code et le message
+   de retour HTTP correspondant. Si le fichier est exécutable le code est égal à 0.
+*/
 void check_file(const char *pathname, int* code, char* string){
   struct stat buf;
   printf("[thread]\tpathname: %s\n", pathname);
@@ -64,29 +73,225 @@ void check_file(const char *pathname, int* code, char* string){
   strcpy(string, "OK");
 }
 
-int get_mime(char* extention, char* mime){
-  FILE* proc_file;
-  char type[SIZE_MIME];
-  int proc;
-  char s_command[] =
-    "grep -w %s /etc/mime.types | awk '{if ($2 != \"\") if ($2 ~ /%s/) print $1}'";
-  char command[100];
-
-  memset(type, '\0', SIZE_MIME);
-  sprintf(command, s_command, extention, extention);
-
-  if( (proc_file = popen(command, "r")) != NULL){
-    proc = fileno(proc_file);
-    if( read(proc, type, SIZE_MIME) > 0){
-      strcpy(mime, type);
-      pclose(proc_file);
-      return 1;
-    }
+/* Cette méthode recherche l'extension de la chaine "chemin"
+   et la renvoie dans le paramètre extension
+*/
+char *get_extension(char *chemin, char *extension){
+  int i, j;
+  char *temp = (char*)malloc(sizeof(char) * strlen(chemin));
+  j = 0;
+  temp[0] = '\0';
+  
+  if(chemin == NULL || extension == NULL){
+    fprintf(stderr, "Error get_extension: null pointer\n");
+    return NULL;
   }
-  pclose(proc_file);
+
+  /* On parcourt la chaine chemin depuis la fin jusqu'à trouver 
+     un point
+  */
+  for(i=strlen(chemin)-1; i >= 0 && chemin[i] != '.'; i--){
+    temp[j] = chemin[i];
+    j++;
+  }
+  /* On a trouvé aucune extension */
+  if(i < 0){
+    extension[0] = '\0';
+    free(temp);
+    return NULL;
+  }
+
+  /* On remplit la chaine extension avec le contenu de temp */
+  for(i=0, j--; j >= 0; i++, j--){
+    extension[i] = temp[j];
+  }
+  extension[i] = '\0';
+  free(temp);
+  return extension;
+}
+
+
+
+/* Cette méthode parse le fichier /etc/mime.types pour chercher le mime type 
+   correspondant à l'extension et renvoie le resultat dans la chaine 
+   mime passée en paramètres.
+   Si la fonction n'a rien trouvée elle renvoie 0.
+*/
+int get_mime(const char *extension, char *mime){
+  regex_t preg;
+  char line[512];
+  FILE *f;
+  char *str_regex;
+
+  int match;
+  size_t nmatch;
+  regmatch_t *pmatch;
+  int start;
+  int end;
+  size_t size;
+  
+  const char template[] = "([[:alnum:]]+/[[:alnum:]+-.]+).*[[:space:]]+%s[[:space:]]";
+
+  if(extension == NULL || extension[0] == '\0'){
+    return 0;
+  }
+  
+  str_regex = (char*)malloc(sizeof(char) * (strlen(template) + 100));
+  sprintf(str_regex, template, extension);
+  f = fopen("/etc/mime.types", "r");
+  if(!f){
+    printf("Erreur: ouverture fichier mime.types\n");
+    fclose(f);
+    return 0;
+  }
+
+  if(regcomp (&preg, str_regex, REG_EXTENDED)){
+    fclose(f);
+    return 0;
+  }
+  
+
+  pmatch = NULL;
+  
+  nmatch = preg.re_nsub + 1;
+  pmatch = malloc (sizeof (*pmatch) * nmatch);
+  if (!pmatch){
+    fprintf(stderr, "Erreur malloc\n");
+    return 0;
+  }
+  while(fgets(line, 512, f) != NULL){
+    match = regexec (&preg, line, nmatch, pmatch, 0);
+    if (match == 0){
+      start = pmatch[1].rm_so;
+	end = pmatch[1].rm_eo;
+	size = end - start;
+	if (mime){
+	  strncpy (mime, &line[start], size);
+	  mime[size] = '\0';
+	}
+	printf("TYPE: %s\n", mime);
+	free(pmatch);
+	fclose(f);
+	return 1;
+      }
+  }
+  free(pmatch);
+  fclose(f);
   return 0;
 }
 
+
+/* Cette methode va chercher dans un fichier contenant un message de reponse
+   http, le code de retour et la taille des donnees envoyees
+*/
+int get_code_and_size(const char *filename, int *code, int *length){
+  regex_t reg_http;
+  regex_t reg_length;
+  char line[256];
+  char result[256];
+  FILE *f;
+
+  int match;
+  int nbmatch;
+  regmatch_t *tab_match;
+  int start;
+  int end;
+  size_t size;
+
+  char* regex_length;
+  char* regex_http;
+
+  regex_http = "HTTP/1.1 ([[:digit:]]{3}) ";
+  regex_length = "Content-Length: ([[:digit:]]+)";
+
+  f = fopen(filename, "r");
+  if(!f){
+    printf("Erreur: ouverture fichier %s\n", filename);
+    fclose(f);
+    return 0;
+  }
+
+  if(regcomp (&reg_http, regex_http, REG_EXTENDED) != 0){
+    fclose(f);
+    return 0;
+  }
+
+  if(regcomp (&reg_length, regex_length, REG_EXTENDED) != 0){
+    fclose(f);
+    return 0;
+  }
+
+  tab_match = NULL;
+  nbmatch = 2;
+  tab_match = malloc (sizeof (*tab_match) * nbmatch);
+  
+  if (!tab_match){
+    fprintf(stderr, "Erreur malloc\n");
+    return 0;
+  }
+
+  if(fgets(line, 256, f) == NULL){
+    fclose(f);
+    free(tab_match);
+    return 0;
+  }
+  
+  /* On recherche le code de retour de la reponse. */
+  match = regexec(&reg_http, line, nbmatch, tab_match, 0);
+
+  /* Mauvaise reponse http si on ne trouve aucune correspondance */
+  if(match != 0){
+    free(tab_match);
+    fclose(f);
+    return 0;
+  }
+
+  start = tab_match[1].rm_so;
+  end = tab_match[1].rm_eo;
+  size = end - start;
+  strncpy(result, &line[start], size);
+  result[size] = '\0';
+  *code = atoi(result);
+  
+  /* Tant qu'il y a des headers a lire on recherche
+     Content-length
+  */
+  while(fgets(line, 256, f) != NULL && strlen(line) != 1){
+
+    match = regexec (&reg_length, line, nbmatch, tab_match, 0);
+    if (match != 0){
+      continue;
+    }
+    start = tab_match[1].rm_so;
+    end = tab_match[1].rm_eo;
+    size = end - start;
+    strncpy (result, &line[start], size);
+    result[size] = '\0';
+    *length = atoi(result);
+
+    free(tab_match);
+    fclose(f);
+    return 1;
+  }
+
+  free(tab_match);
+
+  size = 0;
+  /* Si ce header n'est pas present, il faut compter 
+     la taille des donnees envoyees */
+  while(fgets(line, 256, f) != NULL){
+    size += strlen(line);
+  }
+  *length = size;
+  
+  fclose(f);
+  return 0;
+}
+
+/*
+  Cette méthode va ajouter une ligne dans le fichier de journalisation 
+  avec les arguments passées en paramètres. 
+*/
 void write_log(client *c, char* str_get, int ret_code, int size)
 {
   char temp[1024];
@@ -108,56 +313,10 @@ void write_log(client *c, char* str_get, int ret_code, int size)
   sem_post(c->sem);
 }
 
-void execute(client *c, char *pathname, int *code, int *size){
-  int pid;
-  int status;
-  int fd;
-  int i;
-  static int counter = 0;
-  char tmp_file[50];
-
-  sem_wait(c->sem);
-  sprintf(tmp_file, "/tmp/exec_%d.tmp", ++counter);
-  sem_post(c->sem);
-
-  pid = fork();
-  if(pid == -1){
-    perror("Fork Error");
-  }
-  if(pid == 0){    
-    if( (fd = open(tmp_file, O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1){
-      perror("impossible ouvir le fichier temporaire");
-      return;
-    }
-    
-    dup2(fd, STDOUT_FILENO);
-    execl(pathname, pathname, NULL);
-    perror("erreur execl");
-    write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
-
-    exit(EXIT_FAILURE);
-  }
-  else{
-    printf("[thread]\tprogramme: %s lancé attente de fin\n", pathname);
-    i = 0;
-    
-    while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < MS_TO_WAIT)){
-      usleep(1000);
-    }
-
-
-    if(i >= MS_TO_WAIT || WEXITSTATUS(status) != 0){
-      write(c->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
-      *code = 500;
-      *size = 0;
-      kill(pid, SIGKILL);
-    }else{
-      send_file(c->socket, tmp_file);
-    }
-    unlink(tmp_file);
-  }
-}
-
+/* Cette méthode est celle exécutée par les threads créées par le serveur
+   pour gérer une connection. Pour chaque requêtes, elle lira tous les headers
+   et créera une thread qui s'occupera de traiter la requête.
+*/
 void *thread_server(void *arg){
   char message[SIZE_REQUEST];
   char *get;
@@ -195,12 +354,10 @@ void *thread_server(void *arg){
     
     if(i == SIZE_REQUEST){
       fprintf(stderr, "Request is too long [4K max]\n");
-      fprintf(stderr, "received: %s\n\n", message);
       shutdown(self->socket, SHUT_RDWR);
+      close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
     }
-
-    /* printf("[thread]\ton à lu: %c - %d\n", get[i], size); */
 
     if(size == 0){
       printf("[thread]\trien à lire, on quitte\n");
@@ -209,7 +366,6 @@ void *thread_server(void *arg){
       pthread_exit((void*)EXIT_FAILURE);
     }else if(size == -1){
       perror("lecture du GET");
-      printf("[thread]\terreur lors de la lecture du socket\n");
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
@@ -225,23 +381,20 @@ void *thread_server(void *arg){
     }while(host[i] != '\n' && i < SIZE_REQUEST && size > 0);
     
     if(i == SIZE_REQUEST){
-      fprintf(stderr, "Request is too long2 [4K max]\n");
-      fprintf(stderr, "received: %s\n\n", message);
+      fprintf(stderr, "Request is too long [4K max]\n");
       shutdown(self->socket, SHUT_RDWR);
+      close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
     }
     
     host[i] = '\0';
     
-    /* this section reads up the buffer
-       up to the point it has twice '\n' red
-       so we know that this is the end of the header
+    /* On lit tous les headers, on arrête donc la boucle
+       à la réception de deux "\n" ou de deux "\r\n"
     */
     i = 1;
-    
     do{
       size = read(self->socket, message, 1);
-      /* printf("%c", message[0]); */
       if(message[0] == '\n'){
 	i++;
       }else if(message[0] != '\r'){
@@ -249,8 +402,6 @@ void *thread_server(void *arg){
       }
     }while(i < 2 && size > 0);
     
-    printf("[thread]\tfin lecture headers\n");
-
     add_client(self->vigil, self->expediteur.sin_addr.s_addr);
     
     fils = (thread_fils*) malloc(sizeof(thread_fils));
@@ -273,8 +424,11 @@ void *thread_server(void *arg){
   }
 }
 
+
+/* Cette méthode est celle exécutée par les sous-threads pour traiter 
+   une requête.
+*/
 void *process_request(void *arg){
-  
   char pathname[SIZE_REQUEST];
   char *chemin;
   char *extension;
@@ -284,12 +438,20 @@ void *process_request(void *arg){
   int size;
   char str_code[10];
   struct stat stats;
+  
+  int pid;
+  int status;
+  int fd;
+  int i;
+  char tmp_file[50];
+  static unsigned long int counter = 0;
+  
   thread_fils self = *(thread_fils*)arg;
   memset(buffer, '\0', SIZE_REQUEST);
 
   /* On recupere le chemin du fichier demandé */
   chemin = (char*) malloc(sizeof(char) * strlen(self.get));
-  size = sscanf(self.get, "%s %s HTTP/1.1\r\n",buffer, chemin);
+  size = sscanf(self.get, "%s %s HTTP/1.1\n",buffer, chemin);
 
   if(strcmp("GET", buffer) != 0){
     printf("[thread]\t\tCommande inconnue: %s - |commande|: %d\n", buffer, (int)strlen(buffer));
@@ -323,33 +485,109 @@ void *process_request(void *arg){
 
   pthread_mutex_lock(self.mutex);
 
-  while( *self.counter != self.id){
-    pthread_cond_wait(self.cond, self.mutex);
-  }
-
+  /*
+    Si le code est égal à 0 la requête concerne un fichier exécutable. 
+    Le processus fils qui exécutera le code ecrira le resultat de l'exécution dans 
+    un fichier temporaire (code de retour HTTP + données).
+    Si il y a une erreur lors de l'exécution il enverra "HTTP/1.1 500 Iternal Error\n\n" au 
+    socket client.
+    Si l'exécution se déroule en moins de MS_TO_WAIT ms, le processus père
+    enverra tous le contenu du fichier au socket client, sinon il envoie 
+    "HTTP/1.1 500 Iternal Error\n\n".
+  */
   if(code == 0){
-    execute(self.cli, pathname, &code, &size);
+    /* On crée le nom du fichier temporaire */
+    sem_wait(self.cli->sem);
+    sprintf(tmp_file, "/tmp/exec_%ld.tmp", ++counter);
+    sem_post(self.cli->sem);
+
+    pid = fork();
+    if(pid == -1){
+      perror("Fork Error");
+    }
+    if(pid == 0){    
+      if( (fd = open(tmp_file, O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1){
+	perror("impossible ouvir le fichier temporaire");
+	exit(EXIT_FAILURE);
+      }
+      /* On redirige la sortie standard du processus vers le fichier 
+	 avant l'exécution.
+      */
+      dup2(fd, STDOUT_FILENO);
+      execl(pathname, pathname, NULL);
+      perror("erreur execl");
+
+      /* Le processus attend que ce soit son tour d'envoyé sur le 
+	 socket 
+      */
+      while( *self.counter != self.id){
+	pthread_cond_wait(self.cond, self.mutex);
+      }
+      write(self.cli->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
+
+      exit(EXIT_FAILURE);
+    }
+    else{
+      i = 0;
+      /* Toutes les ms le processus père vérifie que le processus fils
+	 s'est terminé ou si MS_TO_WAIT ms ce sont déroulées
+      */
+      while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < MS_TO_WAIT)){
+	usleep(1000);
+      }
+      /* Si le fils s'est mal termine ou pas dans les temps */
+      if(i >= MS_TO_WAIT || WEXITSTATUS(status) != 0){
+	while( *self.counter != self.id){
+	  pthread_cond_wait(self.cond, self.mutex);
+	}
+	write(self.cli->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
+	code = 500;
+	size = 0;
+	kill(pid, SIGKILL);
+      }
+      /* Si le fils s'est correctement termine */
+      else{
+	while(*self.counter != self.id){
+	  pthread_cond_wait(self.cond, self.mutex);
+	}
+	/* On va recuperer dans le fichier le code de retour et la taille de
+	   la reponse du fils, si la reponse est correcte et que le client a le droit 
+	   de recevoir des donnees, on lui envoie le contenu du fichier
+	*/
+	if(get_code_and_size(tmp_file, &code, &size) != 0 &&
+	   incremente_size(self.cli->vigil, size, self.cli->expediteur.sin_addr.s_addr)){
+	  send_file(self.cli->socket, tmp_file);
+	}
+	else{
+	  code = 403;
+	  size = 0;
+	  sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
+	  write(self.cli->socket, buffer, strlen(buffer));
+	}
+      }
+      unlink(tmp_file);
+    }
     printf("[thread_fils]\tsize: %d\n", size);
-    /* revoir l'imprementation car il faut empéché l'envoie si on dépasse */
-    incremente_size(self.cli->vigil, size, self.cli->expediteur.sin_addr.s_addr);      
     write_log(self.cli, self.get, code, size);
   }
   else{
     if(code != 200){
-      printf("[thread]\t\t%d: %s\n", code, str_code);
-      sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
+      sprintf(buffer, "HTTP/1.1 %d %s\n\n", code, str_code);
+      printf("thread erreur: %s\n", buffer);
+      while( *self.counter != self.id){
+	pthread_cond_wait(self.cond, self.mutex);
+      }
+      write(self.cli->socket, buffer, strlen(buffer));
       write(self.cli->socket, "\n", 1);
       write_log(self.cli, self.get, code, 0);
     }else{
       
       /* On recherche l'extension de notre fichier */
       extension = (char*) malloc(sizeof(char) * 5);
-      extension = strstr(chemin, ".");
-      extension++;
+      get_extension(chemin, extension);
 
       /* On recupère le type du fichier */
 
-      
       if( !get_mime(extension, mime_type) ){
 	printf("[thread]\t\tmime failed\n");
 	strcpy(mime_type, "text/plain");
@@ -359,10 +597,13 @@ void *process_request(void *arg){
 
       if(incremente_size(self.cli->vigil, stats.st_size, self.cli->expediteur.sin_addr.s_addr)){
 	sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
+
+	while(*self.counter != self.id){
+	  pthread_cond_wait(self.cond, self.mutex);
+	}
 	write(self.cli->socket, buffer, strlen(buffer));
 	
-	/* pas besoin de \n la chaine mime_type l'a déjà à la fin */
-	sprintf(buffer, "Content-Type: %s", mime_type);
+	sprintf(buffer, "Content-Type: %s\n", mime_type);
 	write(self.cli->socket, buffer, strlen(buffer));
 	
 	sprintf(buffer, "Content-Length: %d\r\n\r\n", (int)stats.st_size);
@@ -388,7 +629,9 @@ void *process_request(void *arg){
   pthread_exit((void*)EXIT_SUCCESS);
 }
 
-
+/* Cette méthode envoie le contenu d'un fichier au socket 
+   passé en argument
+*/
 int send_file(int socket, const char* pathname){
   int fd;
   int n;

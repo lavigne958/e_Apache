@@ -47,6 +47,7 @@ void add_client(vigilante *vigil, long ip){
     new_client->ip = ip;
     new_client->flag = 0;
     new_client->last = -1;
+    new_client->timeleft = 0;
     current = vigil->clients;
     vigil->clients = new_client;
     new_client->next = current;
@@ -101,12 +102,20 @@ int incremente_size(vigilante *v, int size, long ip){
     return 0;
   }
 
+  if(self->flag & BLOCKED){
+    printf("[vigilante]\t %ld ne peut pas continuer de recevoir des données (max: %d)\n", (long)ip, v->threshold);
+    self->timeleft = 10;
+    pthread_mutex_unlock(&v->mutex);
+    return 0;
+  }
+
   total = check_total(self);
   printf("[vigilante]\t total accumulé: %d\n", total + size);
 
   if( (total + size) >= v->threshold){
     printf("[vigilante]\t %ld ne peut pas continuer de recevoir des données (max: %d)\n", (long)ip, v->threshold);
-    self->flag = DIRTY;
+    self->flag |= BLOCKED;
+    self->timeleft = 10;
     pthread_mutex_unlock(&v->mutex);
     return 0;
   }
@@ -120,11 +129,17 @@ int incremente_size(vigilante *v, int size, long ip){
   return 1;
 }
 
+
+/* si aucune requete n'a été emise par un client durant la seconde 
+   courante, cette méthode met la case du tableau correspondante
+   à zero. Si l'on trouve un client bloqué on décrémente le champs timeleft
+   représentant le temps restant avant son débloquage
+*/
 void check_clients(vigilante *v){
   client_data_count *current;
   struct tm *local_time;
   time_t current_time;
-
+  int i;
   current_time = time(NULL);
   local_time = localtime(&current_time);
 
@@ -134,7 +149,17 @@ void check_clients(vigilante *v){
 
   current = v->clients;
   while(current != NULL){
-    current->track[local_time->tm_sec] = 0;
+    if(current->last != local_time->tm_sec){
+      current->track[local_time->tm_sec] = 0;
+      if(current->flag & BLOCKED){
+	current->timeleft--;
+	if(current->timeleft == 0){
+	  current->flag &= ~BLOCKED;
+	  for(i=0; i < 60; i++)
+	    current->track[i] = 0;
+	}
+      }
+    }
     current = current->next;
   }
 
@@ -149,14 +174,11 @@ void* vigilante_thread(void *vigil){
   struct timespec temps_restant;
   vigilante *v = (vigilante*)vigil;
   while(1){
-    /* temps avant traitemen */
+    /* temps avant traitement */
     if (clock_gettime(CLOCK_REALTIME, &start) == -1) {
       perror("clock_gettime");
       exit(1);
     }
-
-    /*    printf("il est: %d - %d\n", (int)start.tv_sec, (int)start.tv_nsec);*/
-    
 
     /* ----------- TRAITEMENT -----------*/
     check_clients(v);
@@ -171,7 +193,6 @@ void* vigilante_thread(void *vigil){
 
     echeance.tv_sec = 0;
     echeance.tv_nsec = 1E9 - ((end.tv_sec * 1E9 + end.tv_nsec) - (start.tv_sec * 1E9 + start.tv_nsec));
-    /*    printf("fin: %d - %d -- temps restant: %d \n", (int)end.tv_sec, (int)end.tv_nsec, (int)echeance.tv_nsec/1000000);*/
     if(echeance.tv_nsec > 0){
       clock_nanosleep(CLOCK_REALTIME, 0, &echeance, &temps_restant);
     }
