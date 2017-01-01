@@ -102,12 +102,42 @@ Une structure ``thread\_fils'' a été créée pour transmettre des informations
 \item cond: condition sur laquelle les threads s'endorment si ils ne peuvent pas accéder
   au socket client.
 \item cli: un pointeur vers une structure client
-\item get: une chaine de caractères contenant la première ligne lue par le thread de gestion de connection, cette ligne est sensée être la ligne du GET.
+\item get: une chaine de caractères contenant la première ligne lue par le thread de gestion de connection, cette ligne est sensée être la première ligne recu par le serveur (GET ...)
 \end{itemize}
 
 Le sous thread va verifier que la chaine get transmise commence bien par le mot clé ``GET'' et que le chemin est valide. Puis pour la gestion de la concurrence entre les threads, il va verifier que l'id qu'on lui a transmis est égal au compteur passé dans la structure. Si c'est le cas le thread s'exécute, sinon il s'endort.
 
 à la fin de son exécution le thread réveille tout les autres thread en attente sur la condition, ce qui nous évite les problème de famine.
+
+\section{Contrer le déni de services}
+
+Pour contrer le déni de service nous lançons un thread juste après le démarage du serveur pour contrôler et vérifier que chaque client à le droit de recevoir au plus N octets.
+
+Ce thread particulier que nous avons surnommé ``Vigilante'' contient la structure suivante:
+\begin{itemize}
+\item threshold: le seuil qu'un client ne doit pas dépasser.
+\item mutex: le vérou pour évité les accès mutuels
+\item clients: une liste chainé contenant les informations de chaque client qui tente de ce connecter au serveur
+\end{itemize}
+
+La liste chainé est composé d'une structure client\_data\_count:
+
+\begin{itemize}
+\item track: un tableau de 60 case, chaque case représente une seconde, elle contient le nombre d'octets envoyer à cette instant
+\item ip: l'addresse ip du client
+\item flag: un drapeau permetant de savoir si le client est bloqué ou non
+\item last: la dernière seconde à la quelle le client à effectué une demande
+\item timeleft: le nombre de secondes restante avant que le client ne soit plus bloqué s'il est bloqué
+\end{itemize}
+
+Ce thread parcours ,chaque seconde, la liste chainé de clients, et met à zero la case du tableau pointé par la seconde actuelle, si jamais un client à fait une demande durant cette seconde, le thread ignore le client et n'efface pas cette case de son tableau.\hbox{}
+
+Lorsqu'un client ce connecte et envoie sa/ses requêtes, le thread traitant avec ce client ajoute le client à la liste chainé s'il n'existe pas encore, puis vérifie que ce client ne soit pas bloqué. Si c'est le cas, alors il répond par un code 403 et ferme la connection. Sinon il traite la demande du client. Juste avant de lui répondre, il fait un appel à la méthode ``incremente\_size'' qui permet d'ajouter cette demande au total que ce client à déjà potentiellement demandé. Si cette demande dépasse le seuil maximum alors le client est banis pour 10 secondes, et recoit un code de retour 403. Ceci tant que le client emmet des requêtes et qu'il est banis.\hbox{}
+
+Pour identifier nos client dans la liste chainé nous utilisont leurs addresse IP sous le type ``long'', ce qui nous permet d'identifier parfaitement un client. Cette information nous la prenons dans la structure socckaddr\_in que le système remplis à chaque nouvelle connection.\hbox{}
+
+
+
 
 
 \end{document}
