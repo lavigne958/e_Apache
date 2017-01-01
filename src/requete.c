@@ -327,6 +327,7 @@ void *thread_server(void *arg){
   int id;
   int i;
   int size;
+  int code;
   int *counter;
   thread_fils *fils;
   client *self;
@@ -404,6 +405,18 @@ void *thread_server(void *arg){
     }while(i < 2 && size > 0);
     
     add_client(self->vigil, self->expediteur.sin_addr.s_addr);
+    
+    if( is_blocked(self->vigil, self->expediteur.sin_addr.s_addr)){
+      printf("[thread]\tle client: %d est déjà banis\n", self->expediteur.sin_addr.s_addr);
+      code = 403;
+      size = 0;
+      sprintf(message, "HTTP/1.1 403 Forbidden\r\n\r\n");
+      write(self->socket, message, strlen(message));
+      write_log(self, get, code,  size);
+      shutdown(self->socket, SHUT_RDWR);
+      close(self->socket);
+      pthread_exit((void*)EXIT_FAILURE);
+    }
     
     fils = (thread_fils*) malloc(sizeof(thread_fils));
     
@@ -505,7 +518,7 @@ void *process_request(void *arg){
     pid = fork();
     if(pid == -1){
       perror("Fork Error");
-      pthread_exit((int)errno);
+      pthread_exit(&errno);
     }
     if(pid == 0){    
       if( (fd = open(tmp_file, O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1){

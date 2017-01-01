@@ -26,6 +26,8 @@ void add_client(vigilante* vigil, long ip);
 
 int incremente_size(vigilante *v, int size, long ip);
 
+int is_blocked(vigilante *v, long ip);
+
 void *vigilante_thread(void *vigil);
 
 void check_clients(vigilante *v);

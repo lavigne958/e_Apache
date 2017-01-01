@@ -166,6 +166,20 @@ void check_clients(vigilante *v){
   pthread_mutex_unlock(&v->mutex);
 }
 
+int is_blocked(vigilante *v, long ip){
+  client_data_count *current;
+
+  current = v->clients;
+
+  while(current != NULL){
+    if( current->ip == ip){
+      return current->flag;
+    }
+  }
+
+  return 0;  
+}
+
 
 void* vigilante_thread(void *vigil){
   struct timespec start;
