@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 700
+#define _BSD_SOURCE
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -182,8 +183,8 @@ int get_mime(const char *extension, char *mime){
 }
 
 
-/* Cette methode va chercher dans un fichier contenant un message de reponse
-   http, le code de retour et la taille des donnees envoyees
+/* Cette methode va chercher dans un fichier contenant un message de réponse
+   http, le code de retour et la taille des données envoyées
 */
 int get_code_and_size(const char *filename, int *code, int *length){
   regex_t reg_http;

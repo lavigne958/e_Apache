@@ -10,6 +10,10 @@
 
 #include "vigilante.h"
 
+/* Crée un thread vigilante qui va permettre de surveiller la quantité de données 
+   envoyées à tous les clients du serveur. La méthode renvoie l'adresse de la structure
+   vigilante passée en paramètre au thread afin de pouvoir communiquer avec lui
+*/
 vigilante *create_vigilante_thread(int threshold){
   vigilante *v = (vigilante*)malloc(sizeof(vigilante));
   
@@ -24,6 +28,7 @@ vigilante *create_vigilante_thread(int threshold){
   return v;
 }
 
+/* Ajoute un client dans la liste des clients s'étant connectés au serveur */
 void add_client(vigilante *vigil, long ip){
   int i;
   client_data_count *current;
@@ -56,7 +61,7 @@ void add_client(vigilante *vigil, long ip){
 }
 
 
-
+/* Retourne la quantité de données envoyées au client dans la dernière minute */
 int check_total(client_data_count *client){
   int i;
   int total = 0;
@@ -66,6 +71,11 @@ int check_total(client_data_count *client){
   return total;
 }  
 
+
+/* Cette méthode va vérifier que le client d'adresse ip "ip" a le droit
+   de recevoir des données puis va écrire le contenu de size dans la case du champs 
+   track correspondant à la seconde courante.
+*/
 int incremente_size(vigilante *v, int size, long ip){
   client_data_count *self;
   struct tm *local_time;
@@ -126,11 +136,13 @@ int incremente_size(vigilante *v, int size, long ip){
 }
 
 
-/* si aucune requete n'a été emise par un client durant la seconde 
-   courante, cette méthode met la case du tableau correspondante
+/* Cette méthode est celle appelée par le thread vigilante toutes les secondes.
+   Pour chaque client, si aucune requête n'a été emise par le client durant la seconde 
+   courante, cette méthode met la case du champs track correspondante
    à zero. Si l'on trouve un client bloqué on décrémente le champs timeleft
-   représentant le temps restant avant son débloquage
+   et on débloque le client si nécessaire.
 */
+
 void check_clients(vigilante *v){
   client_data_count *current;
   struct tm *local_time;
@@ -162,6 +174,8 @@ void check_clients(vigilante *v){
   pthread_mutex_unlock(&v->mutex);
 }
 
+
+/* Retourne 0 si le client d'adresse ip "ip" n'est pas bloqué */
 int is_blocked(vigilante *v, long ip){
   client_data_count *current;
 
@@ -180,6 +194,9 @@ int is_blocked(vigilante *v, long ip){
 }
 
 
+/* Méthode exécutée par le thread vigilante, elle va juste faire un appel à check_client 
+   toutes les secondes 
+*/
 void* vigilante_thread(void *vigil){
   struct timespec start;
   struct timespec end;
@@ -204,6 +221,7 @@ void* vigilante_thread(void *vigil){
       exit(1);
     }
 
+    /* On dort le temps necessaire pour qu'un tour de boucle dure une seconde */
     echeance.tv_sec = 0;
     echeance.tv_nsec = 1E9 - ((end.tv_sec * 1E9 + end.tv_nsec) - (start.tv_sec * 1E9 + start.tv_nsec));
     if(echeance.tv_nsec > 0){

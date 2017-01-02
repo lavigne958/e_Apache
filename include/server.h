@@ -8,13 +8,11 @@
 #include "vigilante.h"
 
 typedef struct client{
-  int socket;
-  int log_file;
-  struct sockaddr_in expediteur;
-  sem_t *sem;
-  vigilante *vigil;
-  
+  int socket;                     /* Socket avec lequel on communique avec le client */
+  int log_file;                   /* Descripteur du fichier de journalisation */
+  struct sockaddr_in expediteur;  /* Informations sur le client */
+  sem_t *sem;                     /* Semaphore pour l'accès concurrent au fichier de log */
+  vigilante *vigil;               /* Adresse d'une structure permettant de communiquer avec le thread vigilante (voir vigilante.h) */  
 }client;
-
 		       
 #endif
