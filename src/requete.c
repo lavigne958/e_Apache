@@ -358,7 +358,7 @@ void *thread_server(void *arg){
       i++;
       size = read(self->socket, &get[i], 1);
     }while( get[i] != '\n' && i < SIZE_REQUEST && size > 0);
-    
+
     if(i == SIZE_REQUEST){
       fprintf(stderr, "Request is too long [4K max]\n");
       shutdown(self->socket, SHUT_RDWR);
@@ -366,13 +366,13 @@ void *thread_server(void *arg){
       pthread_exit((void*)EXIT_FAILURE);
     }
 
-    if(size == -1){
-      fprintf(stderr, "fin connection: timeout");
+    if(size == 0 || size == -1){
+      fprintf(stderr, "fin connection\n");
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
     }
-    
+
     get[i] = '\0';
     
     /* On lit la ligne du host */
@@ -405,7 +405,9 @@ void *thread_server(void *arg){
     }while(i < 2 && size > 0);
     
     add_client(self->vigil, self->expediteur.sin_addr.s_addr);
-    
+
+    /* Si le client est bloqué car il a provoqué un deni de servide 
+       on ne crée pas de sous-thread et on renvoie directement 403 Forbidden */
     if( is_blocked(self->vigil, self->expediteur.sin_addr.s_addr)){
       printf("[thread]\tle client: %d est déjà banis\n", self->expediteur.sin_addr.s_addr);
       code = 403;
@@ -438,6 +440,28 @@ void *thread_server(void *arg){
   }
 }
 
+
+/* Cette méthode permet la synchronisation des sous-thread 
+   de traitement de requêtes.
+*/
+void lock_write_socket(thread_fils *fils){
+  pthread_mutex_lock(fils->mutex);
+  while( *(fils->counter) != fils->id){
+    pthread_cond_wait(fils->cond, fils->mutex);
+  }
+}
+
+
+/* Cette méthode permet de déverouiller le socket en écriture,
+   pour la synchronisation entre les sous-thread de traitement de 
+   requêtes.
+*/
+void unlock_write_socket(thread_fils *fils){
+  *(fils->counter) = *(fils->counter) + 1;
+  pthread_cond_broadcast(fils->cond);
+
+  pthread_mutex_unlock(fils->mutex);
+}
 
 /* Cette méthode est celle exécutée par les sous-threads pour traiter 
    une requête.
@@ -496,8 +520,6 @@ void *process_request(void *arg){
   */
   check_file(pathname, &code, str_code);
 
-  pthread_mutex_lock(self.mutex);
-
   /*
     Si le code est égal à 0 la requête concerne un fichier exécutable. 
     Le processus fils qui exécutera le code ecrira le resultat de l'exécution dans 
@@ -541,38 +563,43 @@ void *process_request(void *arg){
       }
       /* Si le fils s'est mal terminé ou pas dans les temps */
       if(i >= MS_TO_WAIT || WEXITSTATUS(status) != 0){
-	while( *self.counter != self.id){
-	  pthread_cond_wait(self.cond, self.mutex);
-	}
+	lock_write_socket(&self);
 	write(self.cli->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
+	unlock_write_socket(&self);
 	code = 500;
 	size = 0;
 	kill(pid, SIGKILL);
       }
       /* Si le fils s'est correctement termine */
       else{
-	while(*self.counter != self.id){
-	  pthread_cond_wait(self.cond, self.mutex);
-	}
-	/* On va recuperer dans le fichier le code de retour et la taille de
-	   la reponse du fils, si la reponse est correcte et que le client a le droit 
-	   de recevoir des donnees, on lui envoie le contenu du fichier
+	/* On va récupérer dans le fichier le code de retour et la taille de
+	   la reponse du fils, si la réponse est correcte et que le client à le droit 
+	   de recevoir des données, on lui envoie le contenu du fichier
 	*/
 	if(get_code_and_size(tmp_file, &code, &size) != 0){
-	  /* On verifie que la taille des données téléchargées dans la dernière minute
-	     + la taille de la reponse à la requête courante n'excède pas le seuil. */
+	  /* On vérifie que la taille des données téléchargées dans la dernière minute
+	     + la taille de la réponse à la requête courante n'excède pas le seuil. */
 	  if(incremente_size(self.cli->vigil, size, self.cli->expediteur.sin_addr.s_addr)){
+	    lock_write_socket(&self);
 	    send_file(self.cli->socket, tmp_file);
+	    unlock_write_socket(&self);
 	  }
 	  else{
 	    code = 403;
 	    size = 0;
 	    sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
+	    lock_write_socket(&self);
 	    write(self.cli->socket, buffer, strlen(buffer));
+	    unlock_write_socket(&self);
+	    shutdown(self.cli->socket, SHUT_RDWR);
+	    close(self.cli->socket);
 	  }
 	}
+	/* Si la méthode get_code_and_size ne trouve pas une reponse HTTP correcte */
 	else{
+	  lock_write_socket(&self);
 	  write(self.cli->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
+	  unlock_write_socket(&self);
 	  code = 500;
 	  size = 0;
 	}
@@ -586,12 +613,11 @@ void *process_request(void *arg){
     if(code != 200){
       sprintf(buffer, "HTTP/1.1 %d %s\n\n", code, str_code);
       printf("thread erreur: %s\n", buffer);
-      while( *self.counter != self.id){
-	pthread_cond_wait(self.cond, self.mutex);
-      }
+      lock_write_socket(&self);
       write(self.cli->socket, buffer, strlen(buffer));
       write(self.cli->socket, "\n", 1);
       write_log(self.cli, self.get, code, 0);
+      unlock_write_socket(&self);
     }
     else{
       
@@ -602,7 +628,6 @@ void *process_request(void *arg){
       /* On recupère le type du fichier */
 
       if( !get_mime(extension, mime_type) ){
-	printf("[thread]\t\tmime failed\n");
 	strcpy(mime_type, "text/plain");
       }
 
@@ -613,9 +638,7 @@ void *process_request(void *arg){
       if(incremente_size(self.cli->vigil, stats.st_size, self.cli->expediteur.sin_addr.s_addr)){
 	sprintf(buffer, "HTTP/1.1 %d %s\r\n", code, str_code);
 
-	while(*self.counter != self.id){
-	  pthread_cond_wait(self.cond, self.mutex);
-	}
+	lock_write_socket(&self);
 	write(self.cli->socket, buffer, strlen(buffer));
 	
 	sprintf(buffer, "Content-Type: %s\n", mime_type);
@@ -625,21 +648,21 @@ void *process_request(void *arg){
 	write(self.cli->socket, buffer, strlen(buffer));
 	
 	send_file(self.cli->socket, pathname);
+	unlock_write_socket(&self);
       }
       else{
 	sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
+	lock_write_socket(&self);
 	write(self.cli->socket, buffer, strlen(buffer));
+	unlock_write_socket(&self);
+	shutdown(self.cli->socket, SHUT_RDWR);
+	close(self.cli->socket);
       }
 
       write_log(self.cli, self.get, code, stats.st_size);
     }
   }
-  
-  *(self.counter) = *(self.counter) + 1;
-  pthread_cond_broadcast(self.cond);
-
-  pthread_mutex_unlock(self.mutex);
-  
+   
   pthread_exit((void*)EXIT_SUCCESS);
 }
 
