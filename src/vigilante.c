@@ -37,7 +37,6 @@ void add_client(vigilante *vigil, long ip){
     current = current->next;
   
   if(current == NULL){
-    printf("[vigilante]\tle client: %ld n'existe pas dans la liste\n", (long) ip);
     new_client = (client_data_count*) malloc(sizeof(client_data_count));
     
     for(i = 0; i < 60; i++){
@@ -51,11 +50,8 @@ void add_client(vigilante *vigil, long ip){
     current = vigil->clients;
     vigil->clients = new_client;
     new_client->next = current;
-  }else{
-    printf("[vigilante]\tle client: %ld existe déjà\n", (long) ip);
   }
   
-  printf("[vigilante]\t ajout du client id: %ld\n", ip);
   pthread_mutex_unlock(&vigil->mutex);
 }
 

@@ -124,6 +124,8 @@ int main(int argc, char *argv[]){
   */
   vigil = create_vigilante_thread(threshold);
   while(1){
+    printf("[server]\tthread créer, attente d'une nouvelle connexion\n");
+    
     sock_client = accept(sock, (struct sockaddr*)&exp, &explen);
 
     if(sock_client == -1){
@@ -147,8 +149,7 @@ int main(int argc, char *argv[]){
       perror("pthread_create");
       shutdown(sock_client, SHUT_RDWR);
     }
-
-    printf("[server]\tthread créer, attente d'une nouvelle connexion\n");
+    
   }
   return EXIT_SUCCESS;
 }

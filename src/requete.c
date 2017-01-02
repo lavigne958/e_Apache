@@ -43,7 +43,7 @@ char* get_time(char* result){
 */
 void check_file(const char *pathname, int* code, char* string){
   struct stat buf;
-  printf("[thread]\tpathname: %s\n", pathname);
+
   /* Si stat retourne ENOENT le fichier n'existe pas, 
      on renvoie 404 Not Found */
   if(stat(pathname, &buf) == -1){
@@ -77,37 +77,34 @@ void check_file(const char *pathname, int* code, char* string){
    et la renvoie dans le paramètre extension
 */
 char *get_extension(char *chemin, char *extension){
-  int i, j;
-  char *temp = (char*)malloc(sizeof(char) * strlen(chemin));
-  j = 0;
-  temp[0] = '\0';
+  int i, indice;
+  indice = -1;
   
   if(chemin == NULL || extension == NULL){
     fprintf(stderr, "Error get_extension: null pointer\n");
     return NULL;
   }
 
-  /* On parcourt la chaine chemin depuis la fin jusqu'à trouver 
-     un point
-  */
-  for(i=strlen(chemin)-1; i >= 0 && chemin[i] != '.'; i--){
-    temp[j] = chemin[i];
-    j++;
+  /* On parcourt la chaine jusqu'à trouver le dernier point */
+  i = 0;
+  while(chemin[i] != '\0'){
+    if(chemin[i] == '.'){
+      indice = i + 1;
+    }
+    i++;
   }
   
   /* On a trouvé aucune extension */
-  if(i < 0){
+  if(indice < 0 || chemin[indice] == '\0'){
     extension[0] = '\0';
-    free(temp);
-    return NULL;
+    return extension;
   }
 
-  /* On remplit la chaine extension avec le contenu de temp */
-  for(i=0, j--; j >= 0; i++, j--){
-    extension[i] = temp[j];
+  /* On remplit la chaine extension */
+  for(i=0; chemin[indice] != '\0'; i++, indice++){
+    extension[i] = chemin[indice];
   }
   extension[i] = '\0';
-  free(temp);
   return extension;
 }
 
@@ -174,7 +171,6 @@ int get_mime(const char *extension, char *mime){
 	strncpy (mime, &line[start], size);
 	mime[size] = '\0';
       }
-      printf("TYPE: %s\n", mime);
       free(pmatch);
       fclose(f);
       return 1;
@@ -370,13 +366,8 @@ void *thread_server(void *arg){
       pthread_exit((void*)EXIT_FAILURE);
     }
 
-    if(size == 0){
-      printf("[thread]\trien à lire, on quitte\n");
-      shutdown(self->socket, SHUT_RDWR);
-      close(self->socket);
-      pthread_exit((void*)EXIT_FAILURE);
-    }else if(size == -1){
-      perror("lecture du GET");
+    if(size == -1){
+      fprintf(stderr, "fin connection: timeout");
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
