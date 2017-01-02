@@ -173,6 +173,9 @@ int is_blocked(vigilante *v, long ip){
 
   while(current != NULL){
     if( current->ip == ip){
+      if((current->flag & BLOCKED) != 0){
+	current->timeleft = 10;
+      }
       return current->flag;
     }
   }
