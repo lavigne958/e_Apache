@@ -124,7 +124,7 @@ int main(int argc, char *argv[]){
   */
   vigil = create_vigilante_thread(threshold);
   while(1){
-    printf("[server]\tthread créer, attente d'une nouvelle connexion\n");
+    printf("[server]\tAttente d'une nouvelle connexion\n");
     
     sock_client = accept(sock, (struct sockaddr*)&exp, &explen);
 
@@ -132,9 +132,7 @@ int main(int argc, char *argv[]){
       perror("accept new client");
       return errno;
     }
-    printf("[server]\tnouvelle connexion d'un client: %ld\n", (long)exp.sin_addr.s_addr);
 
-    
     setsockopt(sock_client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval));
 
     tmp = (client*) malloc(sizeof(client));

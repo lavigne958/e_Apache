@@ -60,6 +60,12 @@ int get_code_and_size(const char *filename, int *code, int *length);
 void write_log(client *c, char* str_get, int ret_code, int size);
 
 
+/* Méthode appelée par le thread_server pour attendre que les sous-threads
+   aient fini le traitement de leur requête.
+*/
+void wait_thread(pthread_mutex_t *mutex, int nb_threads, int *finis);
+
+
 /* Cette méthode est celle exécutée par les threads créées par le serveur
    pour gérer une connection. Pour chaque requêtes, elle lira tous les headers
    et créera une thread qui s'occupera de traiter la requête.

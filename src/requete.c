@@ -320,6 +320,20 @@ void write_log(client *c, char* str_get, int ret_code, int size)
   sem_post(c->sem);
 }
 
+
+/* Méthode appelée par le thread_server pour attendre que les sous-threads
+   aient fini le traitement de leur requête.
+*/
+void wait_thread(pthread_mutex_t *mutex, int nb_threads, int *finis){
+  pthread_mutex_lock(mutex);
+  while(*finis < nb_threads){
+    pthread_mutex_unlock(mutex);
+    sleep(1);
+    pthread_mutex_lock(mutex);
+  }
+  pthread_mutex_unlock(mutex);
+}
+
 /* Cette méthode est celle exécutée par les threads créées par le serveur
    pour gérer une connection. Pour chaque requêtes, elle lira tous les headers
    et créera une thread qui s'occupera de traiter la requête.
@@ -361,6 +375,7 @@ void *thread_server(void *arg){
     }while( get[i] != '\n' && i < SIZE_REQUEST && size > 0);
 
     if(i == SIZE_REQUEST){
+      wait_thread(mutex, id, counter);
       fprintf(stderr, "Request is too long [4K max]\n");
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
@@ -368,6 +383,9 @@ void *thread_server(void *arg){
     }
 
     if(size == 0 || size == -1){
+      /* On attend que les sous-threads aient terminé 
+         avant de fermer la connection */
+      wait_thread(mutex, id, counter);
       fprintf(stderr, "fin connection\n");
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
@@ -384,6 +402,9 @@ void *thread_server(void *arg){
     }while(host[i] != '\n' && i < SIZE_REQUEST && size > 0);
     
     if(i == SIZE_REQUEST){
+      /* On attend que les sous-threads aient terminé 
+         avant de fermer la connection */
+      wait_thread(mutex, id, counter);
       fprintf(stderr, "Request is too long [4K max]\n");
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
@@ -416,6 +437,8 @@ void *thread_server(void *arg){
       sprintf(message, "HTTP/1.1 403 Forbidden\r\n\r\n");
       write(self->socket, message, strlen(message));
       write_log(self, get, code,  size);
+
+      wait_thread(mutex, id, counter);
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);
@@ -430,10 +453,9 @@ void *thread_server(void *arg){
     fils->cli = self;
     strncpy(fils->get, get, strlen(get));
 
-    
-    printf("[server]\tlancement du sous-thread\n");
     if(pthread_create(&t_id, NULL, process_request, (void*)fils) != 0){
       perror("pthread_create");
+
       shutdown(self->socket, SHUT_RDWR);
       close(self->socket);
       pthread_exit((void*)EXIT_FAILURE);

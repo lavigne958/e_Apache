@@ -95,7 +95,6 @@ int incremente_size(vigilante *v, int size, long ip){
   current_time = time(NULL);
   local_time = localtime(&current_time);
   
-  printf("[vigilante]\t on incremente la taille de : %d\n", size);
   pthread_mutex_lock(&v->mutex);
 
   self = v->clients;
@@ -131,7 +130,6 @@ int incremente_size(vigilante *v, int size, long ip){
   
   pthread_mutex_unlock(&v->mutex);
 
-  printf("[vigilante]\t %ld peut recevoir des données\n", (long)ip);
   return 1;
 }
 
@@ -151,7 +149,7 @@ void check_clients(vigilante *v){
   current_time = time(NULL);
   local_time = localtime(&current_time);
 
-  printf("[vigilante]\t on efface la case: %d\n", local_time->tm_sec);
+  printf("[vigilante]\t seconde: %d\n", local_time->tm_sec);
 
   pthread_mutex_lock(&v->mutex);
 
