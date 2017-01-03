@@ -125,7 +125,7 @@ int incremente_size(vigilante *v, int size, long ip){
     return 0;
   }
 
-  self->track[local_time->tm_sec] = size;
+  self->track[local_time->tm_sec] += size;
   self->last = local_time->tm_sec;
   
   pthread_mutex_unlock(&v->mutex);

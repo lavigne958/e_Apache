@@ -26,6 +26,7 @@ typedef struct thread_fils{
 char* get_time(char* result);
 
 
+
 /* Cette méthode vérifie que le fichier existe et qu'il est accessible par le serveur en
    lecture. Il renvoie dans les paramètres code et string, le code et le message
    de retour HTTP correspondant. Si le fichier est exécutable le code est égal à 0.
@@ -33,10 +34,14 @@ char* get_time(char* result);
 void check_file(const char *pathname, int* code, char* string);
 
 
+
+
 /* Cette méthode recherche l'extension de la chaine chemin
    et la renvoie dans le paramètre extension
 */
 char *get_extension(char *chemin, char *extension);
+
+
 
 
 /* Cette méthode parse le fichier /etc/mime.types pour chercher le mime type 
@@ -47,10 +52,14 @@ char *get_extension(char *chemin, char *extension);
 int get_mime(const char *extension, char *mime);
 
 
+
+
 /* Cette methode va chercher dans un fichier contenant un message de réponse
    http, le code de retour et la taille des données envoyées
 */
 int get_code_and_size(const char *filename, int *code, int *length);
+
+
 
 
 /*
@@ -60,10 +69,15 @@ int get_code_and_size(const char *filename, int *code, int *length);
 void write_log(client *c, char* str_get, int ret_code, int size);
 
 
+
+
+
 /* Méthode appelée par le thread_server pour attendre que les sous-threads
    aient fini le traitement de leur requête.
 */
 void wait_thread(pthread_mutex_t *mutex, int nb_threads, int *finis);
+
+
 
 
 /* Cette méthode est celle exécutée par les threads créées par le serveur
@@ -73,10 +87,13 @@ void wait_thread(pthread_mutex_t *mutex, int nb_threads, int *finis);
 void *thread_server(void *arg);
 
 
+
+
 /* Cette méthode permet la synchronisation des sous-thread 
    de traitement de requêtes.
 */
 void lock_write_socket(thread_fils *fils);
+
 
 
 /* Cette méthode permet de déverouiller le socket en écriture,
@@ -84,6 +101,18 @@ void lock_write_socket(thread_fils *fils);
    requêtes.
 */
 void unlock_write_socket(thread_fils *fils);
+
+
+
+/* Cette méthode exécute l'exécutable de chemin pathname.
+   Le processus fils qui exécutera le code ecrira le resultat de l'exécution dans 
+   un fichier temporaire (code de retour HTTP + données).
+   Si l'exécution se déroule en moins de MS_TO_WAIT ms, le processus père
+   enverra tous le contenu du fichier au socket client, sinon il envoie 
+   "HTTP/1.1 500 Iternal Error\n\n".
+*/
+void execute(char *pathname, thread_fils *self);
+
 
 
 /* Cette méthode est celle exécutée par les sous-threads pour traiter 

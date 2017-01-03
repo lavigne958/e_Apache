@@ -32,9 +32,35 @@ char* get_time(char* result){
   time_t current_time = time(NULL);
   today = localtime(&current_time);
 
-  sprintf(result, "%d/%d/%d-%d:%d:%d ", today->tm_mday, today->tm_mon, (today->tm_year + 1900), today->tm_hour, today->tm_min, today->tm_sec);
-
+  sprintf(result, "%d/%d/%d-%d:%d:%d ", today->tm_mday, today->tm_mon+1, (today->tm_year + 1900), today->tm_hour, today->tm_min, today->tm_sec);
+  /*sprintf(result, "%s", asctime(today));
+    result[strlen(result) -1] = '\0';*/
   return result;
+}
+
+
+
+/*
+  Cette méthode va ajouter une ligne dans le fichier de journalisation 
+  avec les arguments passées en paramètres. 
+*/
+void write_log(client *c, char* str_get, int ret_code, int size)
+{
+  char temp[1024];
+  char date[50];
+  int fd = c->log_file;
+  str_get[strlen(str_get) - 1] = '\0';
+  sem_wait(c->sem);
+  sprintf(temp, "%s - %s - %d - %ld - %s - %d - %d\n",
+	  inet_ntoa(c->expediteur.sin_addr),
+	  get_time(date),
+	  getpid(),
+	  (long)pthread_self(),
+	  str_get,
+	  ret_code,
+	  size);
+  write(fd, temp, strlen(temp));
+  sem_post(c->sem);
 }
 
 
@@ -275,7 +301,6 @@ int get_code_and_size(const char *filename, int *code, int *length){
     strncpy (result, &line[start], size);
     result[size] = '\0';
     *length = atoi(result);
-    printf("function size: %d\n", *length);
     free(tab_match);
     fclose(f);
     return 1;
@@ -293,31 +318,6 @@ int get_code_and_size(const char *filename, int *code, int *length){
   
   fclose(f);
   return 1;
-}
-
-/*
-  Cette méthode va ajouter une ligne dans le fichier de journalisation 
-  avec les arguments passées en paramètres. 
-*/
-void write_log(client *c, char* str_get, int ret_code, int size)
-{
-  char temp[1024];
-  char date[20];
-  int fd = c->log_file;
-  
-  sprintf(temp, "%s - %s - %d - %ld - %s - %d - %d\n",
-	  inet_ntoa(c->expediteur.sin_addr),
-	  get_time(date),
-	  getpid(),
-	  (long)pthread_self(),
-	  str_get,
-	  ret_code,
-	  size);	  
-
-  sem_wait(c->sem);
-  write(fd, temp, strlen(temp));
-  write(fd, "\n", 1);
-  sem_post(c->sem);
 }
 
 
@@ -464,6 +464,114 @@ void *thread_server(void *arg){
 }
 
 
+/* Cette méthode exécute l'exécutable de chemin pathname.
+   Le processus fils qui exécutera le code ecrira le resultat de l'exécution dans 
+   un fichier temporaire (code de retour HTTP + données).
+   Si l'exécution se déroule en moins de MS_TO_WAIT ms, le processus père
+   enverra tous le contenu du fichier au socket client, sinon il envoie 
+   "HTTP/1.1 500 Iternal Error\n\n".
+*/
+void execute(char *pathname, thread_fils *self){
+  int pid;
+  int fd;
+  char buffer[50];
+  char tmp_file[50];
+  int status;
+  int i;
+  int code, size;
+  
+  static unsigned int counter = 0;
+  
+  /* On crée le nom du fichier temporaire */
+  sem_wait(self->cli->sem);
+  sprintf(tmp_file, "/tmp/exec_%d.tmp", ++counter);
+  sem_post(self->cli->sem);
+
+  pid = fork();
+  if(pid == -1){
+    perror("Fork Error");
+    sprintf(buffer, "HTTP/1.1 500 Iternal Error\n\n");
+    lock_write_socket(self);
+    write(self->cli->socket, buffer, strlen(buffer));
+    unlock_write_socket(self);
+    write_log(self->cli, self->get, 500, 0);
+    pthread_exit(&errno);
+  }
+
+  if(pid == 0){    
+    if( (fd = open(tmp_file, O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1){
+      perror("impossible ouvir le fichier temporaire");
+      exit(EXIT_FAILURE);
+    }
+    /* On redirige la sortie standard du processus vers le fichier 
+       avant l'exécution.
+    */
+    dup2(fd, STDOUT_FILENO);
+    execl(pathname, pathname, NULL);
+    perror("erreur execl");
+
+    exit(EXIT_FAILURE);
+  }
+  
+  else{
+    i = 0;
+    /* Toutes les microsecondes le processus père vérifie que le processus fils
+       s'est terminé ou si MS_TO_WAIT ms ce sont déroulées
+    */
+    while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < MS_TO_WAIT)){
+      usleep(1000);
+    }
+    /* Si le fils s'est mal terminé ou pas dans les temps */
+    if(i >= MS_TO_WAIT || WEXITSTATUS(status) != 0){
+      sprintf(buffer, "HTTP/1.1 500 Iternal Error\n\n");
+      lock_write_socket(self);
+      write(self->cli->socket, buffer, strlen(buffer));
+      unlock_write_socket(self);
+      code = 500;
+      size = 0;
+      kill(pid, SIGKILL);
+    }
+    /* Si le fils s'est correctement termine */
+    else{
+      /* On va récupérer dans le fichier le code de retour et la taille de
+	 la reponse du fils, si la réponse est correcte et que le client à le droit 
+	 de recevoir des données, on lui envoie le contenu du fichier
+      */
+      if(get_code_and_size(tmp_file, &code, &size) != 0){
+	/* On vérifie que la taille des données téléchargées dans la dernière minute
+	   + la taille de la réponse à la requête courante n'excède pas le seuil. */
+	if(incremente_size(self->cli->vigil, size, self->cli->expediteur.sin_addr.s_addr)){
+	  lock_write_socket(self);
+	  send_file(self->cli->socket, tmp_file);
+	  unlock_write_socket(self);
+	}
+	else{
+	  code = 403;
+	  size = 0;
+	  sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
+	  lock_write_socket(self);
+	  write(self->cli->socket, buffer, strlen(buffer));
+	  unlock_write_socket(self);
+	  shutdown(self->cli->socket, SHUT_RDWR);
+	  close(self->cli->socket);
+	}
+      }
+      /* Si la méthode get_code_and_size ne trouve pas une reponse HTTP correcte */
+      else{
+	sprintf(buffer, "HTTP/1.1 500 Iternal Error\n\n");
+	lock_write_socket(self);
+	write(self->cli->socket, buffer, strlen(buffer));
+	unlock_write_socket(self);
+	code = 500;
+	size = 0;
+      }
+      unlink(tmp_file);
+    }
+    write_log(self->cli, self->get, code, size);
+  }
+}
+
+
 /* Cette méthode permet la synchronisation des sous-thread 
    de traitement de requêtes.
 */
@@ -496,25 +604,18 @@ void *process_request(void *arg){
   char buffer[SIZE_REQUEST];
   char mime_type[SIZE_MIME];
   int code;
-  int size;
+  int matches;
   char str_code[10];
   struct stat stats;
-  
-  int pid;
-  int status;
-  int fd;
-  int i;
-  char tmp_file[50];
-  static unsigned long int counter = 0;
-  
+    
   thread_fils self = *(thread_fils*)arg;
   memset(buffer, '\0', SIZE_REQUEST);
 
   /* On recupere le chemin du fichier demandé */
   chemin = (char*) malloc(sizeof(char) * strlen(self.get));
-  size = sscanf(self.get, "%s %s HTTP/1.1\n",buffer, chemin);
+  matches = sscanf(self.get, "%s %s HTTP/1.1\n",buffer, chemin);
 
-  if(strcmp("GET", buffer) != 0){
+  if(matches != 2 || strcmp("GET", buffer) != 0){
     printf("[thread]\t\tCommande inconnue: %s - |commande|: %d\n", buffer, (int)strlen(buffer));
     shutdown(self.cli->socket, SHUT_RDWR);
     close(self.cli->socket);
@@ -545,92 +646,10 @@ void *process_request(void *arg){
 
   /*
     Si le code est égal à 0 la requête concerne un fichier exécutable. 
-    Le processus fils qui exécutera le code ecrira le resultat de l'exécution dans 
-    un fichier temporaire (code de retour HTTP + données).
-    Si l'exécution se déroule en moins de MS_TO_WAIT ms, le processus père
-    enverra tous le contenu du fichier au socket client, sinon il envoie 
-    "HTTP/1.1 500 Iternal Error\n\n".
+    
   */
   if(code == 0){
-    /* On crée le nom du fichier temporaire */
-    sem_wait(self.cli->sem);
-    sprintf(tmp_file, "/tmp/exec_%ld.tmp", ++counter);
-    sem_post(self.cli->sem);
-
-    pid = fork();
-    if(pid == -1){
-      perror("Fork Error");
-      pthread_exit(&errno);
-    }
-    if(pid == 0){    
-      if( (fd = open(tmp_file, O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1){
-	perror("impossible ouvir le fichier temporaire");
-	exit(EXIT_FAILURE);
-      }
-      /* On redirige la sortie standard du processus vers le fichier 
-	 avant l'exécution.
-      */
-      dup2(fd, STDOUT_FILENO);
-      execl(pathname, pathname, NULL);
-      perror("erreur execl");
-
-      exit(EXIT_FAILURE);
-    }
-    else{
-      i = 0;
-      /* Toutes les microsecondes le processus père vérifie que le processus fils
-	 s'est terminé ou si MS_TO_WAIT ms ce sont déroulées
-      */
-      while(waitpid(pid, &status, WNOHANG) == 0 && (i++ < MS_TO_WAIT)){
-	usleep(1000);
-      }
-      /* Si le fils s'est mal terminé ou pas dans les temps */
-      if(i >= MS_TO_WAIT || WEXITSTATUS(status) != 0){
-	lock_write_socket(&self);
-	write(self.cli->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
-	unlock_write_socket(&self);
-	code = 500;
-	size = 0;
-	kill(pid, SIGKILL);
-      }
-      /* Si le fils s'est correctement termine */
-      else{
-	/* On va récupérer dans le fichier le code de retour et la taille de
-	   la reponse du fils, si la réponse est correcte et que le client à le droit 
-	   de recevoir des données, on lui envoie le contenu du fichier
-	*/
-	if(get_code_and_size(tmp_file, &code, &size) != 0){
-	  /* On vérifie que la taille des données téléchargées dans la dernière minute
-	     + la taille de la réponse à la requête courante n'excède pas le seuil. */
-	  if(incremente_size(self.cli->vigil, size, self.cli->expediteur.sin_addr.s_addr)){
-	    lock_write_socket(&self);
-	    send_file(self.cli->socket, tmp_file);
-	    unlock_write_socket(&self);
-	  }
-	  else{
-	    code = 403;
-	    size = 0;
-	    sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
-	    lock_write_socket(&self);
-	    write(self.cli->socket, buffer, strlen(buffer));
-	    unlock_write_socket(&self);
-	    shutdown(self.cli->socket, SHUT_RDWR);
-	    close(self.cli->socket);
-	  }
-	}
-	/* Si la méthode get_code_and_size ne trouve pas une reponse HTTP correcte */
-	else{
-	  lock_write_socket(&self);
-	  write(self.cli->socket, "HTTP/1.1 500 Iternal Error\n\n", 28);
-	  unlock_write_socket(&self);
-	  code = 500;
-	  size = 0;
-	}
-	unlink(tmp_file);
-      }
-      printf("[thread_fils]\tsize: %d\n", size);
-      write_log(self.cli, self.get, code, size);
-    }
+    execute(pathname, &self);
   }
   else{
     if(code != 200){
