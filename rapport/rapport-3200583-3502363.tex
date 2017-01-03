@@ -23,7 +23,8 @@ Ce serveur suit le protocole HTTP 1.1. par ailleurs, il n'accepte que la requett
 
 Le projet est élaboré en langage C et la constante: XOPEN\_SOURCE est définit avec la valeur: 700\hbox{}
 
-En plus des fichiers contenant le code du serveur (src/*) nous fournissons les fichiers: index.html, edt.pdf, favicon.ico, test\_cgi. Cest fichier nous permettent de tester nôtre serveur web.
+En plus des fichiers contenant le code du serveur (src/*) nous fournissons le fichier index.html qui permet d'accéder rapidement aux autres
+ressources de notre serveur qui sont: edt.pdf, favicon.ico, test\_cgi. Ces fichiers nous permettent de tester notre serveur web à partir d'un navigateur.
 
 \section{Structure du Server}
 
@@ -66,10 +67,10 @@ Pour rechercher et vérifier le mime-type du fichier demandé, nous utilisons un
 
 Si la fonction ne trouve pas mime-type, elle renvoie 0. Dans ce dernier cas le thread sait que le mime-type n'a pas été trouvé.\hbox{}
 
-Une fois toutes les vérifications effectuées le thread envoie sa réponse au serveur, donc les headers contenant le code de retour, puis le type mime du fichier, dans un fichier.
+Une fois toutes les vérifications effectuées le thread envoie sa réponse au serveur dans un fichier.
 Ensuite une fonction dédiée ouvre, lit et envoie le fichier au client.
 \hbox{}
-Une vérification des erreurs est éffectuée durant l'exécution et renvoie s'il le faut un code de retour 404 ou 403 ou 500 (voir questions suivantes)
+Une vérification des erreurs est effectuée durant l'exécution et renvoie s'il le faut un code de retour 404 ou 403 ou 500 (voir questions suivantes)
 
 \section{Journalisation}
 
@@ -89,7 +90,7 @@ En cas d'erreur ou si le fils ne s'est pas terminé au bout de 10 secondes, nous
 
 \section{Requêtes persistentes}
 
-Le thread créé par le serveur principal pour gérer les connections avec le client va se contenter de lire tous les headers, puis va creer un sous thread pour chaque requêtes du client.
+Le thread créé par le serveur principal pour gérer les connections avec le client va se contenter de lire tous les headers, puis va créer un sous thread pour chaque requêtes du client.
 Une structure ``thread\_fils'' a été créée pour transmettre des informations à ce sous thread.
 \begin{itemize}
 \item counter: l'adresse d'un compteur qui indique le nombre de sous thread terminé
@@ -101,36 +102,36 @@ Une structure ``thread\_fils'' a été créée pour transmettre des informations
 \item get: une chaine de caractères contenant la première ligne lue par le thread de gestion de connection, cette ligne est sensée être la première ligne recu par le serveur (GET ...)
 \end{itemize}
 
-Le sous thread va verifier que la chaine get transmise commence bien par le mot clé ``GET'' et que le chemin est valide. Puis pour la gestion de la concurrence entre les threads, il va verifier que l'id qu'on lui a transmis est égal au compteur passé dans la structure. Si c'est le cas le thread s'exécute, sinon il s'endort.
+Le sous thread va vérifier que la chaine get transmise commence bien par le mot clé ``GET'' et que le chemin est valide. Puis pour la gestion de la concurrence entre les threads, il va vérifier que l'id qu'on lui a transmis est égal au compteur passé dans la structure. Si c'est le cas le thread s'exécute, sinon il s'endort.
 
-à la fin de son exécution le thread réveille tout les autres thread en attente sur la condition, ce qui nous évite les problème de famine.
+A la fin de son exécution le thread réveille tous les autres threads en attente sur la condition, ce qui nous évite les problèmes de famine.
 
 \section{Contrer le déni de services}
 
-Pour contrer le déni de service nous lançons un thread juste après le démarage du serveur pour contrôler et vérifier que chaque client à le droit de recevoir au plus N octets.
+Pour contrer le déni de service nous lançons un thread juste après le démarrage du serveur pour contrôler et vérifier que chaque client ne reçoit pas plus de N octets, N
+étant le seuil passé en argument au serveur.
 
 Ce thread particulier que nous avons surnommé ``Vigilante'' contient la structure suivante:
 \begin{itemize}
 \item threshold: le seuil qu'un client ne doit pas dépasser.
-\item mutex: le vérou pour évité les accès mutuels
-\item clients: une liste chainé contenant les informations de chaque client qui tente de ce connecter au serveur
+\item mutex: le verrou pour éviter les accès mutuels
+\item clients: une liste chainée contenant les informations de chaque client qui tentent de se connecter au serveur
 \end{itemize}
 
-La liste chainé est composé d'une structure client\_data\_count:
-
+La liste chainée est composée d'une structure client\_data\_count:
 \begin{itemize}
-\item track: un tableau de 60 case, chaque case représente une seconde, elle contient le nombre d'octets envoyer à cette instant
+\item track: un tableau de 60 cases, chaque case représente une seconde, elle contient le nombre d'octets envoyer à cette instant
 \item ip: l'addresse ip du client
-\item flag: un drapeau permetant de savoir si le client est bloqué ou non
-\item last: la dernière seconde à la quelle le client à effectué une demande
-\item timeleft: le nombre de secondes restante avant que le client ne soit plus bloqué s'il est bloqué
+\item flag: un drapeau permettant de savoir si le client est bloqué ou non
+\item last: la dernière seconde à laquelle le client à effectué une demande
+\item timeleft: le nombre de secondes restantes avant que le client ne soit plus bloqué
 \end{itemize}
 
-Ce thread parcours ,chaque seconde (donc toutes les secondes moins le temps de traitement nécessaire pour parcours la liste et vérifier tout les clients), la liste chainé de clients, et met à zero la case du tableau pointé par la seconde actuelle, si jamais un client à fait une demande durant cette seconde, le thread ignore le client et n'efface pas cette case de son tableau.\hbox{}
+Ce thread parcours chaque seconde (donc toutes les secondes moins le temps de traitement nécessaire pour l'exécution de check\_clients), la liste chainée de clients, et met à zéro la case du tableau pointée par la seconde actuelle, si jamais un client a fait une demande durant cette seconde, le thread ignore le client et n'efface pas cette case de son tableau.\hbox{}
 
-Lorsqu'un client ce connecte et envoie sa/ses requêtes, le thread traitant avec ce client ajoute le client à la liste chainé s'il n'existe pas encore, puis vérifie que ce client ne soit pas bloqué. Si c'est le cas, alors il répond par un code 403 et ferme la connection. Sinon il traite la demande du client. Juste avant de lui répondre, il fait un appel à la méthode ``incremente\_size'' qui permet d'ajouter cette demande au total que ce client à déjà potentiellement demandé. Si cette demande dépasse le seuil maximum alors le client est banis pour 10 secondes, et recoit un code de retour 403. Ceci tant que le client emmet des requêtes et qu'il est banis.\hbox{}
+Lorsqu'un client se connecte et envoie sa/ses requêtes, le thread traitant avec ce client ajoute le client à la liste chainée s'il n'existe pas encore, puis vérifie que ce client ne soit pas bloqué. Si c'est le cas, alors il répond par un code 403 et ferme la connection. Sinon il traite la demande du client. Juste avant de lui répondre, il fait un appel à la méthode ``incremente\_size'' qui permet d'ajouter cette demande au total de ce que le client a déjà potentiellement demandé. Si cette demande dépasse le seuil maximum alors le client est banni pour 10 secondes, et reçoit un code de retour 403. Ceci tant que le client emet des requêtes alors qu'il est banni.\hbox{}
 
-Pour identifier nos client dans la liste chainé nous utilisont leurs addresse IP sous le type ``long'', ce qui nous permet d'identifier parfaitement un client. Cette information nous la prenons dans la structure socckaddr\_in que le système remplis à chaque nouvelle connection.\hbox{}
+Pour identifier nos client dans la liste chainée nous utilisons leur adresse IP sous le type ``long'', ce qui nous permet d'identifier parfaitement un client. Cette information nous la prenons dans la structure socckaddr\_in que le système remplit à chaque nouvelle connection.\hbox{}
 
 
 
