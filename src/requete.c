@@ -347,7 +347,6 @@ void *thread_server(void *arg){
   int id;
   int i;
   int size;
-  int code;
   int *counter;
   thread_fils *fils;
   client *self;
@@ -432,11 +431,9 @@ void *thread_server(void *arg){
        on ne crée pas de sous-thread et on renvoie directement 403 Forbidden */
     if( is_blocked(self->vigil, self->expediteur.sin_addr.s_addr)){
       printf("[thread]\tle client: %d est déjà banis\n", self->expediteur.sin_addr.s_addr);
-      code = 403;
-      size = 0;
       sprintf(message, "HTTP/1.1 403 Forbidden\r\n\r\n");
       write(self->socket, message, strlen(message));
-      write_log(self, get, code,  size);
+      write_log(self, get, 403,  0);
 
       wait_thread(mutex, id, counter);
       shutdown(self->socket, SHUT_RDWR);
@@ -644,10 +641,6 @@ void *process_request(void *arg){
   */
   check_file(pathname, &code, str_code);
 
-  /*
-    Si le code est égal à 0 la requête concerne un fichier exécutable. 
-    
-  */
   if(code == 0){
     execute(pathname, &self);
   }
@@ -691,6 +684,7 @@ void *process_request(void *arg){
 	
 	send_file(self.cli->socket, pathname);
 	unlock_write_socket(&self);
+	write_log(self.cli, self.get, code, stats.st_size);
       }
       else{
 	sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n\r\n");
@@ -699,9 +693,8 @@ void *process_request(void *arg){
 	unlock_write_socket(&self);
 	shutdown(self.cli->socket, SHUT_RDWR);
 	close(self.cli->socket);
+	write_log(self.cli, self.get, 403, 0);
       }
-
-      write_log(self.cli, self.get, code, stats.st_size);
     }
   }
    
