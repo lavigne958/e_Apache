@@ -33,8 +33,6 @@ char* get_time(char* result){
   today = localtime(&current_time);
 
   sprintf(result, "%d/%d/%d-%d:%d:%d ", today->tm_mday, today->tm_mon+1, (today->tm_year + 1900), today->tm_hour, today->tm_min, today->tm_sec);
-  /*sprintf(result, "%s", asctime(today));
-    result[strlen(result) -1] = '\0';*/
   return result;
 }
 
